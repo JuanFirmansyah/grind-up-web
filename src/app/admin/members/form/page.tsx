@@ -1,8 +1,5 @@
 "use client";
-
-import dynamic from "next/dynamic";
-
-const MemberForm = dynamic(() => import("./MemberForm"), { ssr: false });
+import MemberForm from "./MemberForm";
 
 export default function Page() {
   return <MemberForm />;

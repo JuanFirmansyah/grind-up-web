@@ -1,6 +1,6 @@
-import dynamic from "next/dynamic";
+"use client";
 
-const ClassForm = dynamic(() => import("./Classform"), { ssr: false });
+import ClassForm from "./Classform";
 
 export default function Page() {
   return <ClassForm />;
