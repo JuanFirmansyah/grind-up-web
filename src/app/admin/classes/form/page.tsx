@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { ClassForm } from "./Classform";
+import { ClassForm } from "./ClassForm";
 
 export default function FormPage() {
   return (
