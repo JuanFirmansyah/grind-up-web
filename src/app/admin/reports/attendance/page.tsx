@@ -1,3 +1,5 @@
+// src/app/admin/reports/attendance/page.tsx
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -6,9 +8,7 @@ import { collection, getDocs } from "firebase/firestore";
 import { AdminTopbar } from "@/components/AdminTopbar";
 import { AdminSidebar } from "@/components/AdminSidebar";
 import { AdminMobileDrawer } from "@/components/AdminMobileDrawer";
-import { CheckCircle, XCircle } from "lucide-react";
 
-// --- NAV ITEMS ---
 const navItems = [
   { label: "Dashboard", href: "/admin/dashboard" },
   { label: "Kelas", href: "/admin/classes" },
@@ -18,59 +18,50 @@ const navItems = [
   { label: "Pelatih Pribadi", href: "/admin/personal-trainer" },
 ];
 
-// --- DATA TYPES ---
 interface Attendance {
   id: string;
-  memberName: string;
-  className: string;
-  date: string;
-  status: string; // "present" | "absent" | dst
+  memberId?: string;
+  name?: string;
+  checkInAt?: string | number; // Date string/timestamp
+  checkOutAt?: string | number;
+  className?: string;
 }
 
 export default function AttendanceReportPage() {
-  const [data, setData] = useState<Attendance[]>([]);
+  const [attendances, setAttendances] = useState<Attendance[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [dateFilter, setDateFilter] = useState("");
+  const [date, setDate] = useState(""); // yyyy-mm-dd
   const [isDrawerOpen, setDrawerOpen] = useState(false);
 
-  // --- FETCH DATA ---
   useEffect(() => {
     async function fetchAttendance() {
       setLoading(true);
-      const snap = await getDocs(collection(db, "attendances")); // <-- ganti nama collection jika perlu
-      const arr: Attendance[] = [];
-      snap.forEach((doc) => {
-        const d = doc.data();
-        arr.push({
-          id: doc.id,
-          memberName: d.memberName || "-",
-          className: d.className || "-",
-          date: d.date || "",
-          status: d.status || "absent",
-        });
+      const snap = await getDocs(collection(db, "attendance"));
+      const data: Attendance[] = [];
+      snap.forEach(doc => {
+        data.push({ id: doc.id, ...doc.data() });
       });
-      setData(arr);
+      setAttendances(data);
       setLoading(false);
     }
     fetchAttendance();
   }, []);
 
-  // --- FILTERING ---
-  const filtered = data.filter((a) => {
-    // Search by member or class
+  // --- Filter Logic ---
+  const filtered = attendances.filter(a => {
+    // Search by name
     const q = search.toLowerCase();
-    const byName = a.memberName.toLowerCase().includes(q) || a.className.toLowerCase().includes(q);
-    // Date
-    const byDate = dateFilter ? a.date.startsWith(dateFilter) : true;
-    // Status
-    let byStatus = true;
-    if (statusFilter !== "all") byStatus = a.status === statusFilter;
-    return byName && byDate && byStatus;
+    const match = a.name?.toLowerCase().includes(q) || a.memberId?.includes(q);
+    // Filter by date
+    let dateOk = true;
+    if (date && a.checkInAt) {
+      const dt = new Date(a.checkInAt);
+      dateOk = dt.toISOString().slice(0, 10) === date;
+    }
+    return match && dateOk;
   });
 
-  // --- RENDER ---
   return (
     <main className="min-h-screen flex flex-col md:flex-row bg-gradient-to-br from-white to-blue-50">
       <AdminMobileDrawer isOpen={isDrawerOpen} onClose={() => setDrawerOpen(false)} navItems={navItems} />
@@ -79,32 +70,23 @@ export default function AttendanceReportPage() {
 
       <div className="flex-1 p-6">
         <h1 className="text-2xl font-bold mb-6 text-gray-900">Laporan Kehadiran</h1>
-        {/* Filter/Search */}
+        {/* --- Search & Filter --- */}
         <div className="flex flex-col md:flex-row gap-2 mb-4">
           <input
             type="text"
-            placeholder="Cari nama member / kelas..."
+            placeholder="Cari nama/member ID..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="border px-3 py-2 rounded w-full md:w-1/3"
           />
           <input
             type="date"
-            className="border px-2 py-2 rounded w-full md:w-48"
-            value={dateFilter}
-            onChange={e => setDateFilter(e.target.value)}
+            value={date}
+            onChange={e => setDate(e.target.value)}
+            className="border px-3 py-2 rounded w-full md:w-48"
           />
-          <select
-            className="border px-2 py-2 rounded w-full md:w-48"
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
-          >
-            <option value="all">Semua Status</option>
-            <option value="present">Hadir</option>
-            <option value="absent">Tidak Hadir</option>
-          </select>
         </div>
-        {/* Table */}
+        {/* --- Table --- */}
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="w-12 h-12 border-4 border-blue-300 border-t-transparent rounded-full animate-spin"></div>
@@ -114,10 +96,10 @@ export default function AttendanceReportPage() {
             <table className="min-w-full text-xs md:text-sm">
               <thead>
                 <tr className="bg-blue-50">
-                  <th className="p-3 text-left">Tanggal</th>
-                  <th className="p-3 text-left">Nama Member</th>
-                  <th className="p-3 text-left">Nama Kelas</th>
-                  <th className="p-3 text-left">Status</th>
+                  <th className="p-3 text-left">Nama</th>
+                  <th className="p-3 text-left">Tanggal & Jam Masuk</th>
+                  <th className="p-3 text-left">Kelas</th>
+                  <th className="p-3 text-left">Aksi</th>
                 </tr>
               </thead>
               <tbody>
@@ -130,27 +112,17 @@ export default function AttendanceReportPage() {
                 )}
                 {filtered.map((a) => (
                   <tr key={a.id}>
-                    <td className="p-3">{formatDate(a.date)}</td>
-                    <td className="p-3">{a.memberName}</td>
-                    <td className="p-3">{a.className}</td>
+                    <td className="p-3">{a.name || "-"}</td>
+                    <td className="p-3">{a.checkInAt ? formatDateTime(a.checkInAt) : "-"}</td>
+                    <td className="p-3">{a.className || "-"}</td>
                     <td className="p-3">
-                      {a.status === "present" ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-600 rounded text-xs">
-                          <CheckCircle className="w-4 h-4" /> Hadir
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-500 rounded text-xs">
-                          <XCircle className="w-4 h-4" /> Tidak Hadir
-                        </span>
-                      )}
+                      {/* Tambah tombol aksi detail/edit kalau perlu */}
+                      {/* <button className="px-2 py-1 rounded bg-blue-500 text-white text-xs">Detail</button> */}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <div className="text-xs p-3 text-gray-400">
-              Filter berdasarkan tanggal, nama, status hadir/tidak hadir.
-            </div>
           </div>
         )}
       </div>
@@ -158,9 +130,9 @@ export default function AttendanceReportPage() {
   );
 }
 
-// --- Utility ---
-function formatDate(dateStr: string) {
-  if (!dateStr) return "-";
-  const date = new Date(dateStr);
-  return date.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
+// Utility format tanggal & jam
+function formatDateTime(dt?: string | number) {
+  if (!dt) return "-";
+  const date = new Date(dt);
+  return date.toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" });
 }
