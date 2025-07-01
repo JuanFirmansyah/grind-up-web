@@ -10,7 +10,7 @@ import { motion } from "framer-motion";
 import Image from "next/image";
 import QRCode from "qrcode";
 
-export default function MemberForm() {
+export default function MemberFormInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const memberId = searchParams.get("id");
@@ -172,7 +172,6 @@ export default function MemberForm() {
     setSelectedFile(file);
     setPreviewURL(URL.createObjectURL(file));
   };
-
 
   if (initialLoading) {
     return (
