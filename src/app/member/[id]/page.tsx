@@ -6,7 +6,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import Image from "next/image";
 import QRCode from "react-qr-code";
-import { format } from "date-fns";
+import { format, subMonths } from "date-fns";
 import { id as localeId } from "date-fns/locale";
 import { motion } from "framer-motion";
 
@@ -18,8 +18,7 @@ interface MemberData {
   isVerified: boolean;
   createdAt: string | number | Date;
   profileURL?: string;
-  startDate?: string;
-  endDate?: string;
+  expiredAt?: string | number;
 }
 
 export default function MemberProfilePage() {
@@ -42,8 +41,7 @@ export default function MemberProfilePage() {
               isVerified: docData.isVerified || false,
               createdAt: docData.createdAt || "",
               profileURL: docData.profileURL || "",
-              startDate: docData.startDate || "",
-              endDate: docData.endDate || "",
+              expiredAt: docData.expiredAt || "",
             });
           }
         }
@@ -57,14 +55,22 @@ export default function MemberProfilePage() {
   }, [memberId]);
 
   const getMembershipStatusColor = () => {
-    if (!data?.startDate || !data?.endDate) return "text-gray-500";
+    if (!data?.expiredAt) return "text-gray-500";
     const today = new Date();
-    const end = new Date(data.endDate);
+    const end = new Date(data.expiredAt as string);
     const diff = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
     if (diff <= 0) return "text-red-600 font-bold animate-pulse";
     if (diff <= 7) return "text-yellow-500 font-semibold animate-pulse";
     return "text-green-600 font-medium";
+  };
+
+  // Optional: tampilkan range jika memang ingin (asumsi perpanjang per bulan)
+  const getActiveRange = () => {
+    if (!data?.expiredAt) return "-";
+    const end = new Date(data.expiredAt as string);
+    const start = subMonths(end, 1);
+    return `${format(start, "dd MMM yy", { locale: localeId })} - ${format(end, "dd MMM yy", { locale: localeId })}`;
   };
 
   if (loading) {
@@ -107,11 +113,12 @@ export default function MemberProfilePage() {
               <span className="font-medium">Daftar Sejak</span>
               <span>{format(new Date(data.createdAt), "dd MMMM yyyy", { locale: localeId })}</span>
             </div>
-            {data.startDate && (
+            {data.expiredAt && (
               <div className="flex justify-between pt-2">
                 <span className="font-medium">Masa Aktif</span>
                 <span className={getMembershipStatusColor()}>
-                  {format(new Date(data.startDate), "dd MMM yy", { locale: localeId })} - {format(new Date(data.endDate || new Date()), "dd MMM yy", { locale: localeId })}
+                  {/* Ganti getActiveRange jika ingin range, atau cuma expiredAt */}
+                  {getActiveRange()}
                 </span>
               </div>
             )}

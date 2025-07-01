@@ -43,7 +43,6 @@ export default function AdminPackagesPage() {
         navItems={[
           { label: "Dashboard", href: "/admin/dashboard" },
           { label: "Kelas", href: "/admin/classes" },
-          { label: "Paket", href: "/admin/packages" },
           { label: "Member", href: "/admin/members" },
           { label: "Laporan", href: "/admin/reports" },
           { label: "Pelatih Pribadi", href: "/admin/personal-trainer" },
@@ -55,7 +54,6 @@ export default function AdminPackagesPage() {
         navItems={[
           { label: "Dashboard", href: "/admin/dashboard" },
           { label: "Kelas", href: "/admin/classes" },
-          { label: "Paket", href: "/admin/packages" },
           { label: "Member", href: "/admin/members" },
           { label: "Laporan", href: "/admin/reports" },
           { label: "Pelatih Pribadi", href: "/admin/personal-trainer" },

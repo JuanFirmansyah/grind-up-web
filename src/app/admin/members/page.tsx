@@ -4,20 +4,45 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
-import { db } from "@/lib/firebase";
-import { collection, getDocs, updateDoc, doc } from "firebase/firestore";
-import { AdminSidebar } from "@/components/AdminSidebar";
-import { AdminMobileDrawer } from "@/components/AdminMobileDrawer";
-import { AdminTopbar } from "@/components/AdminTopbar";
-import { Plus, Pencil, Trash2, RotateCcw, X, QrCode } from "lucide-react";
+import { db, storage } from "@/lib/firebase";
+import {
+  collection,
+  getDocs,
+  updateDoc,
+  doc,
+  addDoc,
+  Timestamp,
+} from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import {
+  AdminSidebar
+} from "@/components/AdminSidebar";
+import {
+  AdminMobileDrawer
+} from "@/components/AdminMobileDrawer";
+import {
+  AdminTopbar
+} from "@/components/AdminTopbar";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  RotateCcw,
+  X,
+  QrCode,
+  DollarSign,
+  Eye,
+  UploadCloud,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import formatDistanceToNow from "date-fns/formatDistanceToNow";
+import { format } from "date-fns";
 
 interface Member {
   id: string;
   name: string;
   email: string;
-  phone: string; 
+  phone: string;
   status: "aktif" | "non-aktif";
   activityScore: number;
   createdAt: string;
@@ -27,6 +52,7 @@ interface Member {
   deleted?: boolean;
   photoURL?: string;
   qrCode?: string;
+  expiredAt?: string | number;
 }
 
 export default function AdminMembersPage() {
@@ -40,6 +66,17 @@ export default function AdminMembersPage() {
   const [qrImage, setQrImage] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 10;
+
+  // State pembayaran
+  const [showPayModal, setShowPayModal] = useState(false);
+  const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [payLoading, setPayLoading] = useState(false);
+  const [payMonth, setPayMonth] = useState(1);
+  const [payNominal, setPayNominal] = useState("");
+  const [payFile, setPayFile] = useState<File | null>(null);
+  const [payFilePreview, setPayFilePreview] = useState<string | null>(null);
+  const [payFileError, setPayFileError] = useState<string>("");
+
   const router = useRouter();
 
   useEffect(() => {
@@ -63,6 +100,7 @@ export default function AdminMembersPage() {
           deleted: d.deleted || false,
           photoURL: d.photoURL || null,
           qrCode: d.qrCode || null,
+          expiredAt: d.expiredAt,
         });
       });
       setMembers(data);
@@ -73,12 +111,16 @@ export default function AdminMembersPage() {
 
   const handleDelete = async (id: string) => {
     await updateDoc(doc(db, "members", id), { deleted: true });
-    setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, deleted: true } : m)));
+    setMembers((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, deleted: true } : m))
+    );
   };
 
   const handleRestore = async (id: string) => {
     await updateDoc(doc(db, "members", id), { deleted: false });
-    setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, deleted: false } : m)));
+    setMembers((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, deleted: false } : m))
+    );
   };
 
   const filteredMembers = members.filter((m) => {
@@ -106,6 +148,111 @@ export default function AdminMembersPage() {
     a.click();
   };
 
+  // --- Modal Pembayaran ---
+  const openPayModal = (member: Member) => {
+    setSelectedMember(member);
+    setShowPayModal(true);
+    setPayMonth(1);
+    setPayNominal("");
+    setPayFile(null);
+    setPayFilePreview(null);
+    setPayFileError("");
+  };
+
+  const closePayModal = () => {
+    setShowPayModal(false);
+    setSelectedMember(null);
+    setPayMonth(1);
+    setPayNominal("");
+    setPayFile(null);
+    setPayFilePreview(null);
+    setPayFileError("");
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    setPayFileError("");
+    if (!file) {
+      setPayFile(null);
+      setPayFilePreview(null);
+      return;
+    }
+    if (
+      !["image/jpeg", "image/png"].includes(file.type) ||
+      file.size > 3 * 1024 * 1024
+    ) {
+      setPayFile(null);
+      setPayFilePreview(null);
+      setPayFileError("Hanya file JPG/PNG maksimal 3MB yang diizinkan.");
+      return;
+    }
+    setPayFile(file);
+    setPayFilePreview(URL.createObjectURL(file));
+  };
+
+  const handlePay = async () => {
+    if (!selectedMember) return;
+    if (!payFile) {
+      setPayFileError("Bukti pembayaran wajib diupload.");
+      return;
+    }
+    setPayLoading(true);
+    try {
+      // Hitung expired baru
+      const lastExpired = selectedMember.expiredAt
+        ? new Date(selectedMember.expiredAt)
+        : new Date();
+      const now = new Date();
+      const startDate = lastExpired > now ? lastExpired : now;
+      const newExpired = new Date(startDate);
+      newExpired.setMonth(newExpired.getMonth() + Number(payMonth));
+
+      // Upload gambar ke storage/payments/memberid-timestamp.jpg
+      const fileName = `payments/${selectedMember.id}-${Date.now()}.jpg`;
+      const fileRef = ref(storage, fileName);
+      await uploadBytes(fileRef, payFile as File);
+      const fileURL = await getDownloadURL(fileRef);
+
+      // Update expiredAt di member
+      await updateDoc(doc(db, "members", selectedMember.id), {
+        expiredAt: newExpired.toISOString(),
+        status: "aktif",
+      });
+
+      // Catat ke payments
+      await addDoc(collection(db, "payments"), {
+        memberId: selectedMember.id,
+        name: selectedMember.name,
+        payMonth,
+        nominal: Number(payNominal) || 0,
+        paidAt: Timestamp.now(),
+        expiredAt: newExpired.toISOString(),
+        admin: "admin",
+        imageURL: fileURL, // simpan bukti gambar
+      });
+
+      // Update di list state
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.id === selectedMember.id
+            ? {
+                ...m,
+                expiredAt: newExpired.toISOString(),
+                status: "aktif",
+              }
+            : m
+        )
+      );
+
+      closePayModal();
+      alert("Pembayaran/perpanjangan berhasil!");
+    } catch {
+      alert("Gagal menyimpan pembayaran!");
+    } finally {
+      setPayLoading(false);
+    }
+  };
+
   return (
     <main className="min-h-screen flex flex-col md:flex-row bg-white relative">
       <AdminMobileDrawer
@@ -114,10 +261,8 @@ export default function AdminMembersPage() {
         navItems={[
           { label: "Dashboard", href: "/admin/dashboard" },
           { label: "Kelas", href: "/admin/classes" },
-          { label: "Paket", href: "/admin/packages" },
           { label: "Member", href: "/admin/members" },
           { label: "Laporan", href: "/admin/reports" },
-          { label: "Paket", href: "/admin/packages" },
           { label: "Pelatih Pribadi", href: "/admin/personal-trainer" },
         ]}
       />
@@ -126,10 +271,8 @@ export default function AdminMembersPage() {
         navItems={[
           { label: "Dashboard", href: "/admin/dashboard" },
           { label: "Kelas", href: "/admin/classes" },
-          { label: "Paket", href: "/admin/packages" },
           { label: "Member", href: "/admin/members" },
           { label: "Laporan", href: "/admin/reports" },
-          { label: "Paket", href: "/admin/packages" },
           { label: "Pelatih Pribadi", href: "/admin/personal-trainer" },
         ]}
       />
@@ -210,6 +353,7 @@ export default function AdminMembersPage() {
                 <th className="p-4 text-left">Role</th>
                 <th className="p-4 text-left">Verifikasi</th>
                 <th className="p-4 text-left">Foto</th>
+                <th className="p-4 text-left">Expired</th>
                 <th className="p-4 text-left">Aksi</th>
               </tr>
             </thead>
@@ -217,7 +361,7 @@ export default function AdminMembersPage() {
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i}>
-                    {Array.from({ length: 9 }).map((_, j) => (
+                    {Array.from({ length: 10 }).map((_, j) => (
                       <td key={j} className="p-4">
                         <div className="h-5 bg-gray-200 rounded animate-pulse"></div>
                       </td>
@@ -225,7 +369,7 @@ export default function AdminMembersPage() {
                   </tr>
                 ))
               ) : (
-                filteredMembers.map((member, index) => (
+                paginatedMembers.map((member, index) => (
                   <motion.tr
                     key={member.id}
                     initial={{ opacity: 0, y: 10 }}
@@ -254,7 +398,20 @@ export default function AdminMembersPage() {
                         <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-sm text-gray-500">?</div>
                       )}
                     </td>
+                    <td className="p-4 text-sm">
+                      {member.expiredAt
+                        ? format(new Date(member.expiredAt), "dd MMM yyyy")
+                        : "-"}
+                    </td>
                     <td className="p-4 flex gap-2">
+                      {/* Tombol Detail */}
+                      <button
+                        onClick={() => router.push(`/member/${member.id}`)}
+                        className="p-2 bg-blue-500 text-white rounded-full hover:scale-110 transition"
+                        aria-label="Detail"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
                       <button
                         onClick={() => router.push(`/admin/members/form?id=${member.id}`)}
                         className="p-2 bg-yellow-400 text-white rounded-full hover:scale-110 transition"
@@ -263,13 +420,22 @@ export default function AdminMembersPage() {
                         <Pencil className="w-4 h-4" />
                       </button>
                       {!member.deleted ? (
-                        <button
-                          onClick={() => handleDelete(member.id)}
-                          className="p-2 bg-red-500 text-white rounded-full hover:scale-110 transition"
-                          aria-label="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <>
+                          <button
+                            onClick={() => handleDelete(member.id)}
+                            className="p-2 bg-red-500 text-white rounded-full hover:scale-110 transition"
+                            aria-label="Delete"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => openPayModal(member)}
+                            className="p-2 bg-green-600 text-white rounded-full hover:scale-110 transition"
+                            aria-label="Bayar/Perpanjang"
+                          >
+                            <DollarSign className="w-4 h-4" />
+                          </button>
+                        </>
                       ) : (
                         <button
                           onClick={() => handleRestore(member.id)}
@@ -297,7 +463,113 @@ export default function AdminMembersPage() {
         </div>
       </div>
 
+      {/* Modal pembayaran/perpanjang */}
       <AnimatePresence>
+        {showPayModal && selectedMember && (
+          <motion.div
+            key="modal-pay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center"
+            onClick={closePayModal}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="relative bg-white p-8 rounded-2xl shadow-xl w-full max-w-md"
+              onClick={e => e.stopPropagation()}
+            >
+              <button
+                onClick={closePayModal}
+                className="absolute top-3 right-3 text-gray-400 hover:text-black"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <h2 className="text-lg font-bold mb-4">Perpanjang / Pembayaran Member</h2>
+              <div className="mb-4">
+                <div className="mb-2">
+                  <b>Nama:</b> {selectedMember.name}
+                </div>
+                <div className="mb-2">
+                  <b>Email:</b> {selectedMember.email}
+                </div>
+                <div className="mb-2">
+                  <b>Status:</b>{" "}
+                  <span className={selectedMember.status === "aktif" ? "text-green-600" : "text-red-500"}>
+                    {selectedMember.status}
+                  </span>
+                </div>
+                <div className="mb-2">
+                  <b>Expired Saat Ini:</b>{" "}
+                  {selectedMember.expiredAt
+                    ? format(new Date(selectedMember.expiredAt), "dd MMM yyyy")
+                    : "-"}
+                </div>
+              </div>
+              <div className="mb-3">
+                <label className="block mb-1 font-semibold">Perpanjang Berapa Bulan?</label>
+                <select
+                  value={payMonth}
+                  onChange={e => setPayMonth(Number(e.target.value))}
+                  className="border px-3 py-2 rounded w-full"
+                >
+                  <option value={1}>1 Bulan</option>
+                  <option value={3}>3 Bulan</option>
+                  <option value={6}>6 Bulan</option>
+                  <option value={12}>12 Bulan</option>
+                </select>
+              </div>
+              <div className="mb-3">
+                <label className="block mb-1 font-semibold">Nominal Pembayaran (Rp)</label>
+                <input
+                  type="number"
+                  className="border px-3 py-2 rounded w-full"
+                  value={payNominal}
+                  onChange={e => setPayNominal(e.target.value)}
+                  placeholder="Contoh: 200000"
+                  min={1}
+                  required
+                />
+              </div>
+              <div className="mb-3">
+                <label className="mb-1 font-semibold flex items-center gap-2">
+                  <UploadCloud className="w-5 h-5" /> Bukti Pembayaran (jpg/png, max 3MB)
+                </label>
+                <input
+                  type="file"
+                  accept="image/png, image/jpeg"
+                  onChange={handleFileChange}
+                  className="w-full border rounded px-3 py-2"
+                />
+                {payFilePreview && (
+                  <div className="mt-2">
+                    <Image
+                      src={payFilePreview}
+                      alt="Preview Bukti"
+                      width={200}
+                      height={120}
+                      className="rounded-lg object-cover mx-auto"
+                    />
+                  </div>
+                )}
+                {payFileError && (
+                  <div className="mt-2 text-red-500 text-sm">{payFileError}</div>
+                )}
+              </div>
+              <button
+                onClick={handlePay}
+                className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg mt-2 font-bold flex items-center gap-2 justify-center"
+                disabled={payLoading || !payNominal || !payFile}
+              >
+                {payLoading ? "Menyimpan..." : <><DollarSign className="w-5 h-5" /> Simpan & Perpanjang</>}
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+
         {modalImage && (
           <motion.div
             key="modal"
@@ -366,7 +638,8 @@ export default function AdminMembersPage() {
                 onClick={handleDownloadQR}
                 className="mt-4 inline-block bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow"
               >
-                Download QR</button>
+                Download QR
+              </button>
             </motion.div>
           </motion.div>
         )}
