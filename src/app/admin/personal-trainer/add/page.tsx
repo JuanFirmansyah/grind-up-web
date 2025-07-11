@@ -1,11 +1,13 @@
+// src\app\admin\personal-trainer\add\page.tsx
+
 "use client";
 
-import { useEffect, useState, ChangeEvent, FormEvent } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useState, ChangeEvent, FormEvent, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { db, storage } from "@/lib/firebase";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { collection, addDoc, getDocs, query, where } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { CheckCircle, PlusCircle, Trash2 } from "lucide-react";
+import { PlusCircle, CheckCircle, Trash2 } from "lucide-react";
 import Image from "next/image";
 
 interface SessionPackage {
@@ -14,105 +16,47 @@ interface SessionPackage {
   note: string;
 }
 
-interface TrainerForm {
+interface FormState {
   name: string;
+  email: string;
+  whatsapp: string;
   clubLocation: string;
   clientCount: string;
+  maxSlot: string;
   experience: string;
   specialties: string;
   certifications: string;
   photoUrl: string;
-  whatsapp: string;
   status: string;
-  maxSlot: string;
   sessionPackages: SessionPackage[];
 }
 
-const DEFAULT_PHOTO = "/user-default.png";
+const DEFAULT_FORM: FormState = {
+  name: "",
+  email: "",
+  whatsapp: "+62",
+  clubLocation: "",
+  clientCount: "0",
+  maxSlot: "10",
+  experience: "",
+  specialties: "",
+  certifications: "",
+  photoUrl: "",
+  status: "aktif",
+  sessionPackages: [{ name: "", price: "", note: "" }],
+};
 
-export default function EditPersonalTrainerPage() {
+export default function AddCoachPage() {
   const router = useRouter();
-  const params = useParams();
-  const id =
-    typeof params?.id === "string"
-      ? params.id
-      : Array.isArray(params?.id)
-      ? params.id[0]
-      : "";
-
-  const [form, setForm] = useState<TrainerForm>({
-    name: "",
-    clubLocation: "",
-    clientCount: "",
-    experience: "",
-    specialties: "",
-    certifications: "",
-    photoUrl: "",
-    whatsapp: "",
-    status: "aktif",
-    maxSlot: "10",
-    sessionPackages: [{ name: "", price: "", note: "" }],
-  });
-  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState<FormState>({ ...DEFAULT_FORM });
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [fieldError, setFieldError] = useState<{ [k: string]: string }>({});
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const waRef = useRef<HTMLInputElement>(null);
 
-  // --- Ambil data awal
-  useEffect(() => {
-    if (!id) return;
-    async function fetchData() {
-      try {
-        const docSnap = await getDoc(doc(db, "users", id));
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setForm({
-            name: data.name || "",
-            clubLocation: data.clubLocation || "",
-            clientCount: typeof data.clientCount === "number" ? data.clientCount.toString() : "",
-            experience: data.experience || "",
-            specialties: Array.isArray(data.specialties)
-              ? data.specialties.join(", ")
-              : data.specialties || "",
-            certifications: Array.isArray(data.certifications)
-              ? data.certifications.join(", ")
-              : data.certifications || "",
-            photoUrl: data.photoUrl || "",
-            whatsapp: data.whatsapp || "",
-            status: data.status || "aktif",
-            maxSlot: typeof data.maxSlot === "number" ? data.maxSlot.toString() : "10",
-            sessionPackages:
-              Array.isArray(data.sessionPackages) && data.sessionPackages.length > 0
-                ? data.sessionPackages
-                : [{ name: "", price: "", note: "" }],
-          });
-        }
-      } catch {
-        alert("Gagal memuat data pelatih.");
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchData();
-  }, [id]);
-
-  // --- Handler input
-  const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    setFieldError({});
-    const { name, value } = e.target;
-    if (name === "whatsapp") {
-      let wa = value.startsWith("+62") ? value : "+62" + value.replace(/^\+*/, "").replace(/^62/, "");
-      wa = "+62" + wa.slice(3).replace(/\D/g, "");
-      setForm((prev) => ({ ...prev, whatsapp: wa }));
-    } else if (name === "clientCount" || name === "maxSlot") {
-      setForm((prev) => ({ ...prev, [name]: value.replace(/\D/g, "") }));
-    } else {
-      setForm((prev) => ({ ...prev, [name]: value }));
-    }
-  };
-
-  // --- Handler upload foto ke storage
+  // Handle photo upload to Firebase Storage
   const handlePhotoChange = async (e: ChangeEvent<HTMLInputElement>) => {
     setUploadError(null);
     const file = e.target.files?.[0];
@@ -140,7 +84,21 @@ export default function EditPersonalTrainerPage() {
     }
   };
 
-  // --- Session package changes
+  const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    setError(null);
+    setFieldError({});
+    const { name, value } = e.target;
+    if (name === "whatsapp") {
+      let wa = value.startsWith("+62") ? value : "+62" + value.replace(/^\+*/, "").replace(/^62/, "");
+      wa = "+62" + wa.slice(3).replace(/\D/g, "");
+      setForm((prev) => ({ ...prev, whatsapp: wa }));
+    } else if (name === "clientCount" || name === "maxSlot") {
+      setForm((prev) => ({ ...prev, [name]: value.replace(/\D/g, "") }));
+    } else {
+      setForm((prev) => ({ ...prev, [name]: value }));
+    }
+  };
+
   const handlePkgChange = (idx: number, key: keyof SessionPackage, value: string) => {
     setForm((prev) => ({
       ...prev,
@@ -164,65 +122,68 @@ export default function EditPersonalTrainerPage() {
     }));
   };
 
-  // --- Validasi
-  const validate = () => {
+  const validate = async () => {
     const errors: { [k: string]: string } = {};
     if (!form.name.trim()) errors.name = "Nama wajib diisi";
+    if (!form.email.trim()) errors.email = "Email wajib diisi";
     if (!form.whatsapp.trim() || form.whatsapp === "+62") errors.whatsapp = "Nomor WhatsApp wajib diisi";
     if (!form.whatsapp.startsWith("+62")) {
-      errors.whatsapp = "Nomor WA harus dimulai dengan +62 (kode negara Indonesia)";
+      errors.whatsapp = "Nomor WA harus diawali +62";
     } else if (!/^(\+62)[0-9]{9,}$/.test(form.whatsapp)) {
       errors.whatsapp = "Nomor WA harus valid (contoh: +6281234567890)";
     }
-    if (form.maxSlot && (isNaN(Number(form.maxSlot)) || Number(form.maxSlot) < 1)) {
-      errors.maxSlot = "Slot maksimal minimal 1";
-    }
+    if (!form.maxSlot || Number(form.maxSlot) < 1) errors.maxSlot = "Slot minimal 1";
     if (!form.photoUrl) errors.photoUrl = "Foto coach wajib di-upload!";
+    if (!errors.email) {
+      const q = query(collection(db, "users"), where("email", "==", form.email.trim().toLowerCase()));
+      const snap = await getDocs(q);
+      if (!snap.empty) errors.email = "Email sudah digunakan. Gunakan email lain!";
+    }
     return errors;
   };
 
-  // --- Submit
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setError(null);
     setFieldError({});
     setSaving(true);
 
-    const errors = validate();
-    if (Object.keys(errors).length > 0) {
-      setFieldError(errors);
-      setSaving(false);
-      return;
-    }
-
     try {
-      await updateDoc(doc(db, "users", id), {
-        name: form.name,
-        clubLocation: form.clubLocation,
+      const errors = await validate();
+      if (Object.keys(errors).length > 0) {
+        setFieldError(errors);
+        if (errors.whatsapp && waRef.current) waRef.current.focus();
+        setSaving(false);
+        return;
+      }
+
+      await addDoc(collection(db, "users"), {
+        ...form,
+        email: form.email.trim().toLowerCase(),
+        whatsapp: form.whatsapp.trim(),
+        role: "coach",
         clientCount: form.clientCount ? Number(form.clientCount) : 0,
-        experience: form.experience,
+        maxSlot: form.maxSlot ? Number(form.maxSlot) : 10,
         specialties: form.specialties.split(",").map((s) => s.trim()).filter(Boolean),
         certifications: form.certifications.split(",").map((s) => s.trim()).filter(Boolean),
-        photoUrl: form.photoUrl,
-        whatsapp: form.whatsapp.trim(),
-        status: form.status,
-        maxSlot: form.maxSlot ? Number(form.maxSlot) : 10,
         sessionPackages: form.sessionPackages.filter(
           (pkg) => pkg.name.trim() !== "" || pkg.price.trim() !== "" || pkg.note.trim() !== ""
         ),
+        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        photoUrl: form.photoUrl,
+        status: form.status,
       });
-      alert("Data coach berhasil diupdate!");
+
+      alert("Coach berhasil ditambahkan!");
       router.push("/admin/personal-trainer");
-    } catch {
-      alert("Gagal menyimpan data.");
+    } catch (err) {
+      setError("Gagal menambah coach. Coba lagi.");
+      console.error(err);
     } finally {
       setSaving(false);
     }
   };
-
-  if (loading) {
-    return <p className="p-6 animate-pulse text-gray-500">Memuat data...</p>;
-  }
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-white to-blue-50 p-4 md:p-10">
@@ -235,10 +196,10 @@ export default function EditPersonalTrainerPage() {
           >
             ← Kembali
           </button>
-          <h1 className="text-2xl font-bold text-gray-800">Edit Coach</h1>
+          <h1 className="text-2xl font-bold text-gray-800">Tambah Coach</h1>
         </div>
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Foto */}
+          {/* Photo Upload */}
           <div>
             <label className="font-semibold mb-1 block">Foto (Upload)*</label>
             <input
@@ -254,7 +215,7 @@ export default function EditPersonalTrainerPage() {
             {form.photoUrl && (
               <div className="mt-2 flex items-center gap-4">
                 <Image
-                  src={form.photoUrl || DEFAULT_PHOTO}
+                  src={form.photoUrl}
                   alt={form.name || "Foto Coach"}
                   width={100}
                   height={100}
@@ -289,18 +250,37 @@ export default function EditPersonalTrainerPage() {
               {fieldError.name && <p className="text-xs text-red-500 mt-1">{fieldError.name}</p>}
             </div>
             <div>
+              <label className="font-semibold mb-1 block">Email*</label>
+              <input
+                type="email"
+                name="email"
+                value={form.email}
+                onChange={handleChange}
+                required
+                autoComplete="off"
+                className={`w-full border ${fieldError.email ? "border-red-400" : "border-gray-300"} rounded-lg px-3 py-2`}
+                placeholder="coach@email.com"
+              />
+              {fieldError.email && <p className="text-xs text-red-500 mt-1">{fieldError.email}</p>}
+            </div>
+            <div>
               <label className="font-semibold mb-1 block">Nomor WhatsApp*</label>
               <input
+                ref={waRef}
                 type="text"
                 name="whatsapp"
                 value={form.whatsapp}
                 onChange={handleChange}
                 required
                 autoComplete="off"
+                minLength={13}
+                maxLength={16}
                 className={`w-full border ${fieldError.whatsapp ? "border-red-400" : "border-gray-300"} rounded-lg px-3 py-2`}
                 placeholder="contoh: +6281234567890"
+                inputMode="numeric"
+                pattern="\+62[0-9]{9,13}"
               />
-              <span className="text-xs text-gray-500">Harus awali <b>+62</b> (kode negara Indonesia), hanya angka sesudahnya.</span>
+              <span className="text-xs text-gray-500">Hanya angka setelah <b>+62</b>, contoh: +6281234567890</span>
               {fieldError.whatsapp && <p className="text-xs text-red-500 mt-1">{fieldError.whatsapp}</p>}
             </div>
             <div>
@@ -313,29 +293,46 @@ export default function EditPersonalTrainerPage() {
                 className="w-full border border-gray-300 rounded-lg px-3 py-2"
               />
             </div>
-            <div>
-              <label className="font-semibold mb-1 block">Jumlah Klien</label>
-              <input
-                type="number"
-                name="clientCount"
-                value={form.clientCount}
-                onChange={handleChange}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="font-semibold mb-1 block">Maksimal Slot Klien</label>
-              <input
-                type="number"
-                name="maxSlot"
-                min={1}
-                value={form.maxSlot}
-                onChange={handleChange}
-                required
-                className={`w-full border ${fieldError.maxSlot ? "border-red-400" : "border-gray-300"} rounded-lg px-3 py-2`}
-                placeholder="Contoh: 10"
-              />
-              {fieldError.maxSlot && <p className="text-xs text-red-500 mt-1">{fieldError.maxSlot}</p>}
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="font-semibold mb-1 block">Jumlah Klien (current)</label>
+                <input
+                  type="number"
+                  name="clientCount"
+                  value={form.clientCount}
+                  onChange={handleChange}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  min={0}
+                  readOnly
+                  style={{ background: "#f9fafb", cursor: "not-allowed" }}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="font-semibold mb-1 block">Max Slot*</label>
+                <input
+                  type="number"
+                  name="maxSlot"
+                  value={form.maxSlot}
+                  onChange={handleChange}
+                  min={1}
+                  max={99}
+                  required
+                  className={`w-full border ${fieldError.maxSlot ? "border-red-400" : "border-gray-300"} rounded-lg px-3 py-2`}
+                  placeholder="Max klien aktif"
+                />
+                {fieldError.maxSlot && <p className="text-xs text-red-500 mt-1">{fieldError.maxSlot}</p>}
+              </div>
+              <div className="flex-1">
+                <label className="font-semibold mb-1 block">Sisa Slot</label>
+                <input
+                  type="number"
+                  value={Math.max(Number(form.maxSlot) - Number(form.clientCount || 0), 0)}
+                  readOnly
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-gray-100"
+                  style={{ cursor: "not-allowed" }}
+                  tabIndex={-1}
+                />
+              </div>
             </div>
             <div>
               <label className="font-semibold mb-1 block">Pengalaman</label>
@@ -441,6 +438,7 @@ export default function EditPersonalTrainerPage() {
               Kolom <b>Keterangan</b> untuk promo, bonus sesi, dsb (boleh dikosongkan).
             </p>
           </div>
+          {error && <div className="text-red-500 text-sm">{error}</div>}
           <button
             type="submit"
             disabled={saving}
@@ -452,7 +450,7 @@ export default function EditPersonalTrainerPage() {
               </>
             ) : (
               <>
-                <CheckCircle className="w-5 h-5" /> Simpan Data
+                <CheckCircle className="w-5 h-5" /> Simpan Coach
               </>
             )}
           </button>

@@ -1,4 +1,3 @@
-// src/app/admin/reports/finance/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -11,6 +10,7 @@ import { AdminSidebar } from "@/components/AdminSidebar";
 import { AdminTopbar } from "@/components/AdminTopbar";
 import { AdminMobileDrawer } from "@/components/AdminMobileDrawer";
 import { X } from "lucide-react";
+import * as XLSX from "xlsx";
 
 interface Payment {
   id: string;
@@ -22,6 +22,8 @@ interface Payment {
   expiredAt: string;
   admin: string;
   imageURL?: string;
+  packageName?: string; // Jika di Firestore ada, silakan aktifkan/isi!
+  status?: string;      // Jika di Firestore ada, silakan aktifkan/isi!
 }
 
 export default function ReportFinancePage() {
@@ -52,6 +54,8 @@ export default function ReportFinancePage() {
           expiredAt: d.expiredAt,
           admin: d.admin || "-",
           imageURL: d.imageURL || "",
+          packageName: d.packageName || "-", // <-- opsional, aman walau tidak ada
+          status: d.status || "-",           // <-- opsional, aman walau tidak ada
         });
       });
       setPayments(data.sort((a, b) => b.paidAt.getTime() - a.paidAt.getTime()));
@@ -70,6 +74,28 @@ export default function ReportFinancePage() {
     );
   }, [payments, search]);
 
+  // EXPORT EXCEL
+  function exportToExcel() {
+    // Export hanya data yang di-filter, kalau mau semua pakai: payments
+    const dataExport = filtered.map((item, i) => ({
+      No: i + 1,
+      Nama: item.name,
+      Paket: item.packageName || "-",
+      Nominal: item.nominal,
+      Tanggal: item.paidAt ? format(new Date(item.paidAt), "dd MMM yyyy HH:mm") : "-",
+      Bulan: item.payMonth,
+      Expired: item.expiredAt ? format(new Date(item.expiredAt), "dd MMM yyyy") : "-",
+      Admin: item.admin,
+      Status: item.status || "-",
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(dataExport);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Laporan");
+
+    XLSX.writeFile(workbook, `Laporan_Pembayaran_${format(new Date(), "yyyyMMdd_HHmm")}.xlsx`);
+  }
+
   return (
     <main className="min-h-screen flex flex-col md:flex-row bg-slate-50 relative">
       {/* SIDEBAR & TOPBAR */}
@@ -79,6 +105,7 @@ export default function ReportFinancePage() {
         navItems={[
           { label: "Dashboard", href: "/admin/dashboard" },
           { label: "Kelas", href: "/admin/classes" },
+          { label: "Paket Membership", href: "/admin/packages" },
           { label: "Member", href: "/admin/members" },
           { label: "Laporan", href: "/admin/reports" },
           { label: "Pelatih Pribadi", href: "/admin/personal-trainer" },
@@ -89,6 +116,7 @@ export default function ReportFinancePage() {
         navItems={[
           { label: "Dashboard", href: "/admin/dashboard" },
           { label: "Kelas", href: "/admin/classes" },
+          { label: "Paket Membership", href: "/admin/packages" },
           { label: "Member", href: "/admin/members" },
           { label: "Laporan", href: "/admin/reports" },
           { label: "Pelatih Pribadi", href: "/admin/personal-trainer" },
@@ -108,8 +136,16 @@ export default function ReportFinancePage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <div className="text-gray-500 text-sm">
-            Total transaksi: <b>{payments.length}</b>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={exportToExcel}
+              className="bg-[#97CCDD] hover:bg-[#1CB5E0] text-white px-4 py-2 rounded-lg font-semibold shadow transition"
+            >
+              Export Excel
+            </button>
+            <div className="text-gray-500 text-sm">
+              Total transaksi: <b>{payments.length}</b>
+            </div>
           </div>
         </div>
         <div className="overflow-x-auto bg-white border rounded-xl shadow-lg">
@@ -123,13 +159,14 @@ export default function ReportFinancePage() {
                 <th className="p-4 font-semibold text-left">Expired Baru</th>
                 <th className="p-4 font-semibold text-left">Admin</th>
                 <th className="p-4 font-semibold text-left">Bukti Bayar</th>
+                <th className="p-4 font-semibold text-left">Invoice</th>
               </tr>
             </thead>
             <tbody>
               {loading
                 ? Array.from({ length: skeletonCount }).map((_, i) => (
                     <tr key={i}>
-                      {Array.from({ length: 7 }).map((_, j) => (
+                      {Array.from({ length: 8 }).map((_, j) => (
                         <td key={j} className="p-4">
                           <div className="h-6 bg-gray-200 rounded animate-pulse"></div>
                         </td>
@@ -138,7 +175,7 @@ export default function ReportFinancePage() {
                   ))
                 : filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-6 text-center text-gray-500">
+                      <td colSpan={8} className="p-6 text-center text-gray-500">
                         Tidak ada data pembayaran.
                       </td>
                     </tr>
@@ -172,6 +209,16 @@ export default function ReportFinancePage() {
                           ) : (
                             <span className="text-gray-400">-</span>
                           )}
+                        </td>
+                        <td className="p-4">
+                          <a
+                            href={`/admin/invoice/${p.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline text-[#97CCDD] font-bold hover:text-blue-700 transition"
+                          >
+                            Invoice
+                          </a>
                         </td>
                       </motion.tr>
                     ))

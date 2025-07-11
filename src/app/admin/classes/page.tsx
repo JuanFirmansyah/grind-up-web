@@ -15,6 +15,7 @@ import SpecialTab from "./tabs/SpecialTab";
 const navItems = [
   { label: "Dashboard", href: "/admin/dashboard" },
   { label: "Kelas", href: "/admin/classes" },
+  { label: "Paket Membership", href: "/admin/packages" },
   { label: "Member", href: "/admin/members" },
   { label: "Laporan", href: "/admin/reports" },
   { label: "Pelatih Pribadi", href: "/admin/personal-trainer" },

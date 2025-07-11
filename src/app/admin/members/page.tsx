@@ -1,4 +1,3 @@
-// src/app/admin/members/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -35,8 +34,10 @@ import {
   UploadCloud,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import formatDistanceToNow from "date-fns/formatDistanceToNow";
 import { format } from "date-fns";
+import dynamic from "next/dynamic";
+
+const QRCode = dynamic(() => import("react-qr-code"), { ssr: false });
 
 interface Member {
   id: string;
@@ -44,15 +45,19 @@ interface Member {
   email: string;
   phone: string;
   status: "aktif" | "non-aktif";
-  activityScore: number;
+  activityScore?: number;
   createdAt: string;
   lastLogin: string;
-  role: "member" | "coach" | "admin";
   isVerified: boolean;
   deleted?: boolean;
   photoURL?: string;
-  qrCode?: string;
+  qrData?: string;
   expiredAt?: string | number;
+  memberType?: string; // id paket
+}
+
+interface PackageMap {
+  [key: string]: string; // {id: name}
 }
 
 export default function AdminMembersPage() {
@@ -63,8 +68,10 @@ export default function AdminMembersPage() {
   const [showDeleted, setShowDeleted] = useState(false);
   const [isDrawerOpen, setDrawerOpen] = useState(false);
   const [modalImage, setModalImage] = useState<string | null>(null);
-  const [qrImage, setQrImage] = useState<string | null>(null);
+  const [qrValue, setQrValue] = useState<string | null>(null);
+  const [qrMemberName, setQrMemberName] = useState<string>("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [packageMap, setPackageMap] = useState<PackageMap>({});
   const pageSize = 10;
 
   // State pembayaran
@@ -80,9 +87,22 @@ export default function AdminMembersPage() {
   const router = useRouter();
 
   useEffect(() => {
+    const fetchPackages = async () => {
+      const q = await getDocs(collection(db, "membership_packages"));
+      const map: PackageMap = {};
+      q.forEach((docSnap) => {
+        const d = docSnap.data();
+        map[docSnap.id] = d.name;
+      });
+      setPackageMap(map);
+    };
+    fetchPackages();
+  }, []);
+
+  useEffect(() => {
     const fetchMembers = async () => {
       setLoading(true);
-      const querySnapshot = await getDocs(collection(db, "members"));
+      const querySnapshot = await getDocs(collection(db, "users"));
       const data: Member[] = [];
       querySnapshot.forEach((docSnap) => {
         const d = docSnap.data();
@@ -95,12 +115,12 @@ export default function AdminMembersPage() {
           activityScore: d.activityScore,
           createdAt: d.createdAt,
           lastLogin: d.lastLogin,
-          role: d.role,
           isVerified: d.isVerified,
           deleted: d.deleted || false,
           photoURL: d.photoURL || null,
-          qrCode: d.qrCode || null,
+          qrData: d.qrData || null,
           expiredAt: d.expiredAt,
+          memberType: d.memberType || "",
         });
       });
       setMembers(data);
@@ -110,14 +130,14 @@ export default function AdminMembersPage() {
   }, []);
 
   const handleDelete = async (id: string) => {
-    await updateDoc(doc(db, "members", id), { deleted: true });
+    await updateDoc(doc(db, "users", id), { deleted: true });
     setMembers((prev) =>
       prev.map((m) => (m.id === id ? { ...m, deleted: true } : m))
     );
   };
 
   const handleRestore = async (id: string) => {
-    await updateDoc(doc(db, "members", id), { deleted: false });
+    await updateDoc(doc(db, "users", id), { deleted: false });
     setMembers((prev) =>
       prev.map((m) => (m.id === id ? { ...m, deleted: false } : m))
     );
@@ -140,13 +160,27 @@ export default function AdminMembersPage() {
     currentPage * pageSize
   );
 
-  const handleDownloadQR = () => {
-    if (!qrImage) return;
-    const a = document.createElement("a");
-    a.href = qrImage;
-    a.download = "qr-member.png";
-    a.click();
+  // Tombol QR
+  const openQRModal = (qrValue: string, memberName: string) => {
+    setQrValue(qrValue);
+    setQrMemberName(memberName);
   };
+
+  // Helper: apakah member visit
+  function isVisitType(member: Member) {
+    const label =
+      (member.memberType && packageMap[member.memberType]?.toLowerCase()) ||
+      member.memberType?.toLowerCase() ||
+      "";
+    return label.includes("visit");
+  }
+
+  function formatRupiah(angka: string) {
+  if (!angka) return "";
+  return angka.replace(/\D/g, "")
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  }
+
 
   // --- Modal Pembayaran ---
   const openPayModal = (member: Member) => {
@@ -190,68 +224,74 @@ export default function AdminMembersPage() {
     setPayFilePreview(URL.createObjectURL(file));
   };
 
-  const handlePay = async () => {
-    if (!selectedMember) return;
-    if (!payFile) {
-      setPayFileError("Bukti pembayaran wajib diupload.");
-      return;
-    }
-    setPayLoading(true);
-    try {
-      // Hitung expired baru
+const handlePay = async () => {
+  if (!selectedMember) return;
+  if (!payFile) {
+    setPayFileError("Bukti pembayaran wajib diupload.");
+    return;
+  }
+  setPayLoading(true);
+  try {
+    let newExpired;
+    if (isVisitType(selectedMember)) {
+      newExpired = new Date();
+      newExpired.setDate(newExpired.getDate() + 1);
+      newExpired.setHours(23, 59, 59, 999);
+    } else {
       const lastExpired = selectedMember.expiredAt
         ? new Date(selectedMember.expiredAt)
         : new Date();
       const now = new Date();
       const startDate = lastExpired > now ? lastExpired : now;
-      const newExpired = new Date(startDate);
+      newExpired = new Date(startDate);
       newExpired.setMonth(newExpired.getMonth() + Number(payMonth));
-
-      // Upload gambar ke storage/payments/memberid-timestamp.jpg
-      const fileName = `payments/${selectedMember.id}-${Date.now()}.jpg`;
-      const fileRef = ref(storage, fileName);
-      await uploadBytes(fileRef, payFile as File);
-      const fileURL = await getDownloadURL(fileRef);
-
-      // Update expiredAt di member
-      await updateDoc(doc(db, "members", selectedMember.id), {
-        expiredAt: newExpired.toISOString(),
-        status: "aktif",
-      });
-
-      // Catat ke payments
-      await addDoc(collection(db, "payments"), {
-        memberId: selectedMember.id,
-        name: selectedMember.name,
-        payMonth,
-        nominal: Number(payNominal) || 0,
-        paidAt: Timestamp.now(),
-        expiredAt: newExpired.toISOString(),
-        admin: "admin",
-        imageURL: fileURL, // simpan bukti gambar
-      });
-
-      // Update di list state
-      setMembers((prev) =>
-        prev.map((m) =>
-          m.id === selectedMember.id
-            ? {
-                ...m,
-                expiredAt: newExpired.toISOString(),
-                status: "aktif",
-              }
-            : m
-        )
-      );
-
-      closePayModal();
-      alert("Pembayaran/perpanjangan berhasil!");
-    } catch {
-      alert("Gagal menyimpan pembayaran!");
-    } finally {
-      setPayLoading(false);
     }
-  };
+
+    // Upload gambar ke storage/payments/memberid-timestamp.jpg
+    const fileName = `payments/${selectedMember.id}-${Date.now()}.jpg`;
+    const fileRef = ref(storage, fileName);
+    await uploadBytes(fileRef, payFile);
+    const fileURL = await getDownloadURL(fileRef);
+
+    // Update expiredAt di member
+    await updateDoc(doc(db, "users", selectedMember.id), {
+      expiredAt: newExpired.toISOString(),
+      status: "aktif",
+    });
+
+    // Catat ke payments
+    await addDoc(collection(db, "payments"), {
+      memberId: selectedMember.id,
+      name: selectedMember.name,
+      payMonth: isVisitType(selectedMember) ? 0 : payMonth,
+      nominal: Number(payNominal.replace(/\./g, "")) || 0, // <-- FORMAT ANGKA!
+      paidAt: Timestamp.now(),
+      expiredAt: newExpired.toISOString(),
+      admin: "admin",
+      imageURL: fileURL,
+    });
+
+    setMembers((prev) =>
+      prev.map((m) =>
+        m.id === selectedMember.id
+          ? {
+              ...m,
+              expiredAt: newExpired.toISOString(),
+              status: "aktif",
+            }
+          : m
+      )
+    );
+
+    closePayModal();
+    alert("Pembayaran/perpanjangan berhasil!");
+  } catch {
+    alert("Gagal menyimpan pembayaran!");
+  } finally {
+    setPayLoading(false);
+  }
+};
+
 
   return (
     <main className="min-h-screen flex flex-col md:flex-row bg-white relative">
@@ -261,6 +301,7 @@ export default function AdminMembersPage() {
         navItems={[
           { label: "Dashboard", href: "/admin/dashboard" },
           { label: "Kelas", href: "/admin/classes" },
+          { label: "Paket Membership", href: "/admin/packages" },
           { label: "Member", href: "/admin/members" },
           { label: "Laporan", href: "/admin/reports" },
           { label: "Pelatih Pribadi", href: "/admin/personal-trainer" },
@@ -271,6 +312,7 @@ export default function AdminMembersPage() {
         navItems={[
           { label: "Dashboard", href: "/admin/dashboard" },
           { label: "Kelas", href: "/admin/classes" },
+          { label: "Paket Membership", href: "/admin/packages" },
           { label: "Member", href: "/admin/members" },
           { label: "Laporan", href: "/admin/reports" },
           { label: "Pelatih Pribadi", href: "/admin/personal-trainer" },
@@ -341,16 +383,15 @@ export default function AdminMembersPage() {
           </div>
         </div>
 
-        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm mt-4">
           <table className="w-full table-auto">
             <thead className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
               <tr>
                 <th className="p-4 text-left">Nama</th>
                 <th className="p-4 text-left">Email</th>
+                <th className="p-4 text-left">Tipe Member</th>
                 <th className="p-4 text-left">Status</th>
-                <th className="p-4 text-left">Skor Aktivitas</th>
                 <th className="p-4 text-left">Terakhir Login</th>
-                <th className="p-4 text-left">Role</th>
                 <th className="p-4 text-left">Verifikasi</th>
                 <th className="p-4 text-left">Foto</th>
                 <th className="p-4 text-left">Expired</th>
@@ -359,9 +400,9 @@ export default function AdminMembersPage() {
             </thead>
             <tbody>
               {loading ? (
-                Array.from({ length: 5 }).map((_, i) => (
+                Array.from({ length: 8 }).map((_, i) => (
                   <tr key={i}>
-                    {Array.from({ length: 10 }).map((_, j) => (
+                    {Array.from({ length: 9 }).map((_, j) => (
                       <td key={j} className="p-4">
                         <div className="h-5 bg-gray-200 rounded animate-pulse"></div>
                       </td>
@@ -375,14 +416,17 @@ export default function AdminMembersPage() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.03, duration: 0.4, ease: "easeOut" }}
-                    className="border-b hover:bg-gray-50"
+                    className={`border-b hover:bg-gray-50 ${member.deleted ? "opacity-50" : ""}`}
                   >
                     <td className="p-4 font-semibold text-gray-800">{member.name}</td>
                     <td className="p-4 text-gray-700">{member.email}</td>
+                    <td className="p-4 text-blue-800 font-semibold">
+                      {member.memberType && packageMap[member.memberType]
+                        ? packageMap[member.memberType]
+                        : <span className="text-gray-400 italic">Belum dipilih</span>}
+                    </td>
                     <td className={`p-4 font-medium capitalize ${member.status === "aktif" ? "text-green-600" : "text-red-500"}`}>{member.status}</td>
-                    <td className="p-4 text-gray-700">{member.activityScore}</td>
-                    <td className="p-4 text-gray-500 text-sm">{formatDistanceToNow(new Date(member.lastLogin), { addSuffix: true })}</td>
-                    <td className="p-4 text-blue-700 uppercase text-sm font-semibold">{member.role}</td>
+                    <td className="p-4 text-sm">{member.lastLogin ? format(new Date(member.lastLogin), "dd MMM yyyy") : "-"}</td>
                     <td className="p-4">{member.isVerified ? "✅" : "❌"}</td>
                     <td className="p-4">
                       {member.photoURL ? (
@@ -445,9 +489,10 @@ export default function AdminMembersPage() {
                           <RotateCcw className="w-4 h-4" />
                         </button>
                       )}
-                      {member.qrCode && (
+                      {/* Tombol QR, generate dari qrData */}
+                      {member.qrData && (
                         <button
-                          onClick={() => setQrImage(member.qrCode!)}
+                          onClick={() => openQRModal(member.qrData!, member.name)}
                           className="p-2 bg-blue-500 text-white rounded-full hover:scale-110 transition"
                           aria-label="QR"
                         >
@@ -463,7 +508,7 @@ export default function AdminMembersPage() {
         </div>
       </div>
 
-      {/* Modal pembayaran/perpanjang */}
+      {/* MODAL: Bukti pembayaran/perpanjang */}
       <AnimatePresence>
         {showPayModal && selectedMember && (
           <motion.div
@@ -508,30 +553,51 @@ export default function AdminMembersPage() {
                     ? format(new Date(selectedMember.expiredAt), "dd MMM yyyy")
                     : "-"}
                 </div>
+                <div className="mb-2">
+                  <b>Tipe Member:</b>{" "}
+                  {selectedMember.memberType && packageMap[selectedMember.memberType]
+                    ? packageMap[selectedMember.memberType]
+                    : <span className="text-gray-400 italic">Belum dipilih</span>}
+                </div>
               </div>
-              <div className="mb-3">
-                <label className="block mb-1 font-semibold">Perpanjang Berapa Bulan?</label>
-                <select
-                  value={payMonth}
-                  onChange={e => setPayMonth(Number(e.target.value))}
-                  className="border px-3 py-2 rounded w-full"
-                >
-                  <option value={1}>1 Bulan</option>
-                  <option value={3}>3 Bulan</option>
-                  <option value={6}>6 Bulan</option>
-                  <option value={12}>12 Bulan</option>
-                </select>
-              </div>
+
+              {/* Jika Visit */}
+              {isVisitType(selectedMember) ? (
+                <div className="mb-3 px-3 py-2 rounded bg-yellow-50 border border-yellow-300 text-yellow-800 font-semibold text-center">
+                  <b>Paket Visit:</b> Masa aktif <b>1 hari</b> sejak pembayaran.<br />
+                  <span className="text-xs text-gray-500">(expired otomatis hari berikutnya jam 23:59)</span>
+                </div>
+              ) : (
+                <div className="mb-3">
+                  <label className="block mb-1 font-semibold">Perpanjang Berapa Bulan?</label>
+                  <select
+                    value={payMonth}
+                    onChange={e => setPayMonth(Number(e.target.value))}
+                    className="border px-3 py-2 rounded w-full"
+                  >
+                    <option value={1}>1 Bulan</option>
+                    <option value={3}>3 Bulan</option>
+                    <option value={6}>6 Bulan</option>
+                    <option value={12}>12 Bulan</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Input Nominal dengan Format Rupiah */}
               <div className="mb-3">
                 <label className="block mb-1 font-semibold">Nominal Pembayaran (Rp)</label>
                 <input
-                  type="number"
+                  type="text"
                   className="border px-3 py-2 rounded w-full"
                   value={payNominal}
-                  onChange={e => setPayNominal(e.target.value)}
-                  placeholder="Contoh: 200000"
-                  min={1}
+                  onChange={e => {
+                    const val = e.target.value.replace(/\D/g, "");
+                    setPayNominal(formatRupiah(val));
+                  }}
+                  placeholder="Contoh: 200.000"
                   required
+                  inputMode="numeric"
+                  autoComplete="off"
                 />
               </div>
               <div className="mb-3">
@@ -604,42 +670,37 @@ export default function AdminMembersPage() {
           </motion.div>
         )}
 
-        {qrImage && (
+        {/* MODAL QR, pakai react-qr-code */}
+        {qrValue && (
           <motion.div
             key="qr"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center"
-            onClick={() => setQrImage(null)}
+            onClick={() => setQrValue(null)}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className="relative bg-white p-6 rounded-xl shadow-xl max-w-sm w-full text-center"
-              onClick={(e) => e.stopPropagation()}
+              className="relative bg-white p-8 rounded-xl shadow-xl max-w-sm w-full text-center"
+              onClick={e => e.stopPropagation()}
             >
               <button
-                onClick={() => setQrImage(null)}
+                onClick={() => setQrValue(null)}
                 className="absolute top-2 right-2 text-gray-600 hover:text-black"
               >
                 <X className="w-5 h-5" />
               </button>
-              <Image
-                src={qrImage}
-                alt="QR Code"
-                width={256}
-                height={256}
-                className="mx-auto rounded-lg"
-              />
-              <button
-                onClick={handleDownloadQR}
-                className="mt-4 inline-block bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow"
-              >
-                Download QR
-              </button>
+              <div className="mb-4 text-lg font-semibold">{qrMemberName}</div>
+              {qrValue && (
+                <div className="mx-auto mb-2 bg-white rounded-lg p-2 w-fit">
+                  <QRCode value={qrValue} size={180} className="mx-auto rounded" />
+                </div>
+              )}
+              <div className="text-xs text-gray-400 mb-2">Scan untuk buka profil member</div>
             </motion.div>
           </motion.div>
         )}

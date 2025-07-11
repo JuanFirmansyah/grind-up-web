@@ -10,6 +10,9 @@ import { format, subMonths } from "date-fns";
 import { id as localeId } from "date-fns/locale";
 import { motion } from "framer-motion";
 
+const LOGO_URL = "/grindup-logo.jpeg";
+const DEFAULT_PHOTO = "/default.jpg";
+
 interface MemberData {
   name: string;
   photoURL?: string;
@@ -19,18 +22,20 @@ interface MemberData {
   createdAt: string | number | Date;
   profileURL?: string;
   expiredAt?: string | number;
+  memberType?: string; // <-- field memberType (ID paket)
 }
 
 export default function MemberProfilePage() {
   const { id: memberId } = useParams();
   const [data, setData] = useState<MemberData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [packageName, setPackageName] = useState<string>("");
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         if (typeof memberId === "string") {
-          const docSnap = await getDoc(doc(db, "members", memberId));
+          const docSnap = await getDoc(doc(db, "users", memberId));
           if (docSnap.exists()) {
             const docData = docSnap.data();
             setData({
@@ -42,11 +47,25 @@ export default function MemberProfilePage() {
               createdAt: docData.createdAt || "",
               profileURL: docData.profileURL || "",
               expiredAt: docData.expiredAt || "",
+              memberType: docData.memberType || "",
             });
+
+            // Fetch nama package dari membership_packages
+            if (docData.memberType) {
+              const pkgSnap = await getDoc(doc(db, "membership_packages", docData.memberType));
+              if (pkgSnap.exists()) {
+                const pkgData = pkgSnap.data();
+                setPackageName(pkgData.name || "");
+              } else {
+                setPackageName(""); // Tidak ada package, kosongkan
+              }
+            } else {
+              setPackageName(""); // Tidak ada memberType
+            }
           }
         }
       } catch (error) {
-        console.error("Error fetching member data:", error);
+        console.error("Error fetching member/package data:", error);
       } finally {
         setLoading(false);
       }
@@ -59,13 +78,11 @@ export default function MemberProfilePage() {
     const today = new Date();
     const end = new Date(data.expiredAt as string);
     const diff = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-
     if (diff <= 0) return "text-red-600 font-bold animate-pulse";
     if (diff <= 7) return "text-yellow-500 font-semibold animate-pulse";
     return "text-green-600 font-medium";
   };
 
-  // Optional: tampilkan range jika memang ingin (asumsi perpanjang per bulan)
   const getActiveRange = () => {
     if (!data?.expiredAt) return "-";
     const end = new Date(data.expiredAt as string);
@@ -82,64 +99,98 @@ export default function MemberProfilePage() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-white to-slate-100 p-6 flex items-center justify-center">
+    <main className="min-h-screen bg-gradient-to-br from-[#97CCDD] via-white to-slate-100 flex items-center justify-center py-10">
       <motion.div
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="max-w-md w-full bg-white shadow-2xl rounded-3xl overflow-hidden"
+        initial={{ opacity: 0, y: 80, rotate: -8, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, rotate: 0, scale: 1 }}
+        transition={{ duration: 0.7, type: "spring", stiffness: 90, damping: 16 }}
+        className="w-full max-w-4xl bg-white shadow-2xl border-4 border-[#97CCDD] rounded-2xl overflow-hidden relative group"
+        style={{ minHeight: 320 }}
       >
-        <div className="p-6 text-center">
-          <Image
-            src={data.photoURL || "/no-photo.png"}
-            alt={data.name}
-            width={100}
-            height={100}
-            className="mx-auto rounded-full h-24 w-24 object-cover border-4 border-blue-500 shadow-lg"
-          />
-          <h1 className="mt-4 text-2xl font-bold text-gray-800 tracking-wide">{data.name}</h1>
-          <p className="text-sm text-gray-500 capitalize italic">{data.role}</p>
-
-          <div className="mt-6 space-y-3 text-left text-sm text-gray-700 divide-y divide-gray-200">
-            <div className="flex justify-between pt-2">
-              <span className="font-medium">Status</span>
-              <span className={data.status === "aktif" ? "text-green-600 font-semibold" : "text-red-500 font-semibold"}>{data.status}</span>
+        <div className="grid grid-cols-1 md:grid-cols-[280px_150px_1fr] h-full">
+          {/* Panel kiri */}
+          <div className="flex flex-col items-center justify-center bg-[#97CCDD] h-full min-h-[260px] py-8 px-6 md:rounded-l-2xl">
+            <div className="bg-white rounded-full p-2 shadow-lg border-2 border-white w-28 h-28 flex items-center justify-center mb-3">
+              <Image
+                src={LOGO_URL}
+                alt="Logo Gym"
+                width={90}
+                height={90}
+                className="rounded-full object-contain w-20 h-20"
+                priority
+              />
             </div>
-            <div className="flex justify-between pt-2">
-              <span className="font-medium">Verifikasi</span>
-              <span>{data.isVerified ? "✔️ Terverifikasi" : "❌ Belum"}</span>
+            <div className="text-[#156477] font-black text-2xl text-center leading-tight mt-2 drop-shadow tracking-wide select-none">GRIND UP<br />FITNESS</div>
+            <motion.div
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: 1 }}
+              transition={{ duration: 0.7, delay: 0.2 }}
+              className="h-1 bg-gradient-to-r from-[#1CB5E0] to-[#97CCDD] w-2/3 rounded-full mt-4 mb-2 origin-left"
+            />
+          </div>
+          {/* Panel tengah: Foto & QR */}
+          <div className="flex flex-col items-center justify-center gap-3 py-7 px-3 bg-white">
+            <Image
+              src={data.photoURL && data.photoURL.length > 5 ? data.photoURL : DEFAULT_PHOTO}
+              alt={data.name}
+              width={80}
+              height={80}
+              className="rounded-xl h-20 w-20 object-cover border-4 border-[#97CCDD] shadow-md bg-white"
+              priority
+            />
+            <div className="bg-white p-1 rounded-lg border-2 border-dashed border-[#97CCDD] shadow-sm">
+              <QRCode value={data.profileURL || ""} size={70} />
             </div>
-            <div className="flex justify-between pt-2">
-              <span className="font-medium">Daftar Sejak</span>
-              <span>{format(new Date(data.createdAt), "dd MMMM yyyy", { locale: localeId })}</span>
+            <span className="text-[10px] text-gray-400 mt-0.5">QR Profil</span>
+          </div>
+          {/* Panel kanan: Detail */}
+          <div className="flex flex-col justify-center py-8 px-5 md:px-10">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <h1 className="text-2xl md:text-3xl font-black text-gray-800">{data.name}</h1>
+              {/* Badge member type */}
+              {packageName && (
+                <span className="px-2 py-1 bg-[#FFD700] text-xs font-bold text-gray-800 rounded-lg shadow-sm uppercase ml-1">
+                  {packageName}
+                </span>
+              )}
+              <span className="px-2 py-1 bg-[#97CCDD] text-xs font-bold text-white rounded-lg shadow-sm uppercase ml-1">{data.role || "Member"}</span>
             </div>
-            {data.expiredAt && (
-              <div className="flex justify-between pt-2">
-                <span className="font-medium">Masa Aktif</span>
+            <div className="flex flex-wrap gap-2 mb-2">
+              <span className={`inline-block px-2 py-0.5 text-xs rounded-full font-bold ${data.status === "aktif" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}>{data.status === "aktif" ? "AKTIF" : "TIDAK AKTIF"}</span>
+              <span className={`inline-block px-2 py-0.5 text-xs rounded-full font-semibold ${data.isVerified ? "bg-blue-100 text-blue-600" : "bg-gray-100 text-gray-400"}`}>{data.isVerified ? "Terverifikasi" : "Belum Verifikasi"}</span>
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-gray-700 text-sm mb-3">
+              <div>
+                <span className="font-semibold mr-1">Daftar:</span>
+                {format(new Date(data.createdAt), "dd MMMM yyyy", { locale: localeId })}
+              </div>
+              <div>
+                <span className="font-semibold mr-1">Masa Aktif:</span>
                 <span className={getMembershipStatusColor()}>
-                  {/* Ganti getActiveRange jika ingin range, atau cuma expiredAt */}
                   {getActiveRange()}
                 </span>
               </div>
-            )}
-          </div>
-
-          <div className="pt-6">
-            <div className="inline-block bg-white p-2 shadow-md rounded-xl">
-              <QRCode value={data.profileURL || ""} size={128} className="mx-auto rounded" />
             </div>
-            <p className="mt-2 text-xs text-gray-400">Scan QR untuk buka profil ini</p>
+            <div>
+              <a
+                href={`https://wa.me/6285654444777?text=Halo%20Admin,%20saya%20lihat%20profil%20member%20dengan%20nama%20${encodeURIComponent(data.name)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-2 bg-[#1CB5E0] hover:bg-[#156477] text-white font-bold py-2 px-5 rounded-xl shadow-lg transition-all duration-200 active:scale-95 ring-2 ring-[#97CCDD]/30"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 32 32" fill="currentColor"><path d="M16 .01a15.92 15.92 0 0 0-13.47 24.93L0 32l7.23-2.35A15.91 15.91 0 1 0 16 .01zm7.36 23.39c-.31.88-1.6 1.62-2.2 1.72-.58.09-1.3.13-2.09-.13-.48-.15-1.09-.36-1.88-.7-3.31-1.43-5.47-4.75-5.63-4.97-.16-.22-1.34-1.78-1.34-3.38s.85-2.38 1.15-2.7c.28-.3.62-.38.82-.38.21 0 .41.01.59.01.18 0 .44-.07.69.52.25.59.85 2.05.93 2.2.08.15.13.32.03.52-.09.21-.13.33-.25.51-.13.18-.26.4-.37.54-.13.17-.26.35-.11.68.15.33.66 1.09 1.41 1.77 1.08.96 1.99 1.25 2.34 1.39.36.15.56.13.76-.08.21-.22.86-.96 1.09-1.29.23-.33.45-.27.77-.16.32.11 2.04.96 2.39 1.13.35.18.58.27.67.42.1.14.1.81-.21 1.7z"/></svg>
+                Hubungi Admin WhatsApp
+              </a>
+            </div>
           </div>
-
-          <a
-            href={`https://wa.me/6285340621139?text=Halo%20Admin,%20saya%20lihat%20profil%20member%20dengan%20nama%20${encodeURIComponent(data.name)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-6 inline-block w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-2 rounded-lg transition shadow-sm"
-          >
-            Hubungi Admin via WhatsApp
-          </a>
         </div>
+        {/* animasi glow */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.7 }}
+          animate={{ opacity: 0.20, scale: 1.12 }}
+          transition={{ duration: 1.2, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" }}
+          className="absolute z-0 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none rounded-[50px] w-5/6 h-5/6 bg-[#97CCDD] blur-3xl"
+        />
       </motion.div>
     </main>
   );

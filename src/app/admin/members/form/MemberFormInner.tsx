@@ -8,7 +8,15 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage } from "@/lib/firebase";
 import { motion } from "framer-motion";
 import Image from "next/image";
-import QRCode from "qrcode";
+
+// Daftar tipe member dengan label + sesuai kebutuhan
+const MEMBER_TYPES = [
+  { value: "visit", label: "Visit" },
+  { value: "gym_studio", label: "Gym + Studio" },
+  { value: "gym_studio_functional", label: "Gym + Studio + Functional" },
+  { value: "gym_functional", label: "Gym + Functional" },
+  { value: "functional", label: "Functional" },
+];
 
 export default function MemberFormInner() {
   const router = useRouter();
@@ -20,10 +28,8 @@ export default function MemberFormInner() {
     email: "",
     phone: "",
     status: "aktif",
-    activityScore: 0,
     createdAt: new Date().toISOString(),
     lastLogin: new Date().toISOString(),
-    role: "member",
     isVerified: false,
     age: "",
     gender: "",
@@ -32,7 +38,9 @@ export default function MemberFormInner() {
     diseaseHistory: "",
     goal: "",
     experience: "",
-    bloodType: ""
+    bloodType: "",
+    memberType: "", // Tambahan: Tipe Member
+    // role akan selalu "member" (default/hardcoded)
   });
 
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
@@ -46,7 +54,7 @@ export default function MemberFormInner() {
     const fetchMember = async () => {
       if (!memberId) return;
       try {
-        const docSnap = await getDoc(doc(db, "members", memberId));
+        const docSnap = await getDoc(doc(db, "users", memberId));
         if (docSnap.exists()) {
           setForm((prev) => ({ ...prev, ...docSnap.data() }));
         }
@@ -75,14 +83,9 @@ export default function MemberFormInner() {
 
     setForm((prev) => ({
       ...prev,
-      [name]:
-        type === "checkbox"
-          ? (e.target as HTMLInputElement).checked
-          : name === "activityScore"
-          ? parseInt(val)
-          : val
+      [name]: type === "checkbox" ? (e.target as HTMLInputElement).checked : val,
     }));
-    setFormErrors((prev) => ({ ...prev, [name]: "" })); // clear error saat edit
+    setFormErrors((prev) => ({ ...prev, [name]: "" }));
   };
 
   // Form validation
@@ -95,7 +98,7 @@ export default function MemberFormInner() {
     if (!form.age) errors.age = "Umur wajib diisi";
     if (!form.weight) errors.weight = "Berat badan wajib diisi";
     if (!form.height) errors.height = "Tinggi badan wajib diisi";
-    // Tambah validasi lainnya sesuai kebutuhan
+    if (!form.memberType) errors.memberType = "Tipe member wajib dipilih";
     return errors;
   };
 
@@ -126,23 +129,26 @@ export default function MemberFormInner() {
     }
     setLoading(true);
     try {
-      const payload = { ...form, phone: formatPhoneNumber(form.phone) };
+      // Hardcode role
+      const payload = { ...form, role: "member", phone: formatPhoneNumber(form.phone) };
       let docRef;
+      let currentMemberId = memberId;
 
       if (memberId) {
-        docRef = doc(db, "members", memberId);
+        docRef = doc(db, "users", memberId);
         await updateDoc(docRef, payload);
       } else {
-        docRef = await addDoc(collection(db, "members"), payload);
-        const newMemberId = docRef.id;
-        const profileURL = `${window.location.origin}/member/${newMemberId}`;
-        await updateDoc(docRef, { profileURL });
-        const qrDataURL = await QRCode.toDataURL(profileURL);
-        await updateDoc(docRef, { qrCode: qrDataURL });
+        docRef = await addDoc(collection(db, "users"), payload);
+        currentMemberId = docRef.id;
       }
 
+      // --- Set qrData: link ke profile member
+      const qrData = `https://grindupfitness.com/member/${currentMemberId}`;
+      await updateDoc(docRef, { qrData });
+
+      // --- Upload photo jika ada
       if (selectedFile) {
-        const photoRef = ref(storage, `members/${memberId || docRef.id}.jpg`);
+        const photoRef = ref(storage, `members/${currentMemberId}.jpg`);
         await uploadBytes(photoRef, selectedFile);
         const photoURL = await getDownloadURL(photoRef);
         await updateDoc(docRef, { photoURL });
@@ -151,7 +157,13 @@ export default function MemberFormInner() {
       alert("Member berhasil disimpan!");
       router.push("/admin/members");
     } catch (err: unknown) {
-      if (typeof err === "object" && err !== null && "code" in err && typeof (err as { code?: string }).code === "string" && (err as { code: string }).code.includes("storage/")) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        "code" in err &&
+        typeof (err as { code?: string }).code === "string" &&
+        (err as { code: string }).code.includes("storage/")
+      ) {
         setFileError("Gagal upload gambar: " + (err as { message?: string }).message);
       } else if (typeof err === "object" && err !== null && "message" in err) {
         alert("Terjadi kesalahan saat menyimpan member: " + ((err as { message?: string }).message || ""));
@@ -256,6 +268,25 @@ export default function MemberFormInner() {
               <label className="block mb-1 font-semibold text-gray-700">Golongan Darah</label>
               <input type="text" name="bloodType" value={form.bloodType} onChange={handleChange} placeholder="contoh: O / A / B / AB" className="w-full border px-4 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
+            {/* Tambahan: Dropdown Tipe Member */}
+            <div>
+              <label className="block mb-1 font-semibold text-gray-700">Tipe Member</label>
+              <select
+                name="memberType"
+                value={form.memberType}
+                onChange={handleChange}
+                className={`w-full border px-4 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${formErrors.memberType && "border-red-500"}`}
+                required
+              >
+                <option value="">Pilih Tipe Member</option>
+                {MEMBER_TYPES.map((type) => (
+                  <option value={type.value} key={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+              {formErrors.memberType && <p className="text-red-500 text-xs">{formErrors.memberType}</p>}
+            </div>
           </div>
 
           <div>
@@ -270,18 +301,6 @@ export default function MemberFormInner() {
                 <option value="aktif">Aktif</option>
                 <option value="non-aktif">Non-Aktif</option>
               </select>
-            </div>
-            <div>
-              <label className="block mb-1 font-semibold text-gray-700">Role</label>
-              <select name="role" value={form.role} onChange={handleChange} className="w-full border px-4 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="member">Member</option>
-                <option value="coach">Coach</option>
-                <option value="admin">Admin</option>
-              </select>
-            </div>
-            <div>
-              <label className="block mb-1 font-semibold text-gray-700">Skor Aktivitas</label>
-              <input type="number" name="activityScore" value={form.activityScore} onChange={handleChange} className="w-full border px-4 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div className="flex items-center gap-2 mt-6">
               <input type="checkbox" name="isVerified" checked={form.isVerified} onChange={handleChange} className="w-4 h-4 rounded border-gray-300 text-blue-600" />
