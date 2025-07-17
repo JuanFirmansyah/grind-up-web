@@ -146,13 +146,14 @@ export default function AdminMembersPage() {
   const filteredMembers = members.filter((m) => {
     const term = searchTerm.toLowerCase();
     const matchesSearch =
-      m.name.toLowerCase().includes(term) ||
-      m.email.toLowerCase().includes(term) ||
-      (m.phone && m.phone.toLowerCase().includes(term));
+      (m.name || "").toLowerCase().includes(term) ||
+      (m.email || "").toLowerCase().includes(term) ||
+      (m.phone || "").toLowerCase().includes(term);
     const matchesStatus = statusFilter ? m.status === statusFilter : true;
     const matchesDeleted = showDeleted ? m.deleted : !m.deleted;
     return matchesSearch && matchesStatus && matchesDeleted;
   });
+
 
   const totalPages = Math.ceil(filteredMembers.length / pageSize);
   const paginatedMembers = filteredMembers.slice(
