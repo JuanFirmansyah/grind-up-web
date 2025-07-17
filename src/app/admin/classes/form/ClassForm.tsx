@@ -1,13 +1,13 @@
-// src\app\admin\classes\form\ClassForm.tsx
-
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { db } from "@/lib/firebase";
+import { db, storage } from "@/lib/firebase";
 import { collection, addDoc, doc, getDoc, updateDoc, query, where, getDocs } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { motion } from "framer-motion";
 import { CheckCircle } from "lucide-react";
+import Image from "next/image";
 
 export default function ClassForm() {
   const router = useRouter();
@@ -15,17 +15,18 @@ export default function ClassForm() {
   const classId = searchParams.get("id");
 
   const [coaches, setCoaches] = useState<{ id: string; name: string; email: string }[]>([]);
-
   const classNames = [
     "Yoga",
     "Zumba",
     "Aerobik",
     "Pilates",
     "Poundfit",
+    "Functional",
+    "Lainnya",
   ];
-
   const [form, setForm] = useState({
     className: "",
+    customClassName: "",
     date: "",
     time: "",
     coach: "",
@@ -35,15 +36,20 @@ export default function ClassForm() {
     duration: "",
     level: "Beginner",
     calorieBurn: "",
-    imageUrl: ""
+    imageUrl: "",
   });
 
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageError, setImageError] = useState("");
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(!!classId);
 
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     const fetchCoaches = async () => {
-      const q = query(collection(db, "members"), where("role", "==", "coach"));
+      const q = query(collection(db, "users"), where("role", "==", "coach"));
       const snapshot = await getDocs(q);
       const data = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -71,6 +77,7 @@ export default function ClassForm() {
           const data = docSnap.data();
           setForm({
             className: data.className || "",
+            customClassName: "",
             date: data.date || "",
             time: data.time || "",
             coach: data.coach || "",
@@ -80,8 +87,9 @@ export default function ClassForm() {
             duration: data.duration !== undefined ? data.duration.toString() : "",
             level: data.level || "Beginner",
             calorieBurn: data.calorieBurn !== undefined ? data.calorieBurn.toString() : "",
-            imageUrl: data.imageUrl || ""
+            imageUrl: data.imageUrl || "",
           });
+          setImagePreview(data.imageUrl || null);
         }
       } catch {
         alert("Gagal memuat data kelas.");
@@ -92,22 +100,100 @@ export default function ClassForm() {
     fetchData();
   }, [classId]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) => {
     const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
+    setForm((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
   };
 
+  // Validasi gambar lebar (landscape)
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setImageError("");
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const img = new window.Image();
+    img.src = URL.createObjectURL(file);
+    img.onload = () => {
+      if (img.width <= img.height) {
+        setImageError("Gambar harus landscape/lebar (width > height).");
+        setImageFile(null);
+        setImagePreview(null);
+        if (imageInputRef.current) imageInputRef.current.value = "";
+        return;
+      }
+      setImageFile(file);
+      setImagePreview(img.src);
+    };
+  };
+
+  // Handle nama kelas dinamis
+  const handleClassNameChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setForm(prev => ({
+      ...prev,
+      className: e.target.value,
+      customClassName: e.target.value === "Lainnya" ? prev.customClassName : "",
+    }));
+  };
+
+  // Simpan data
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { className, date, time, coach, slots } = form;
-    if (!className || !date || !time || !coach || isNaN(Number(slots))) {
+
+    const realClassName = form.className === "Lainnya" ? form.customClassName : form.className;
+
+    if (
+      !realClassName || !form.date || !form.time || !form.coach ||
+      isNaN(Number(form.slots)) || !form.duration || !form.level
+    ) {
       alert("Semua field wajib diisi.");
       setLoading(false);
       return;
     }
+
+    if (form.className === "Lainnya" && !form.customClassName.trim()) {
+      alert("Silakan isi nama kelas custom!");
+      setLoading(false);
+      return;
+    }
+
+    // Validasi gambar
+    if (imageFile && imageError) {
+      alert(imageError);
+      setLoading(false);
+      return;
+    }
+
+    let uploadedImageUrl = form.imageUrl;
+    if (imageFile) {
+      try {
+        const imagePath = `class-images/${Date.now()}_${imageFile.name}`;
+        const storageRef = ref(storage, imagePath);
+        await uploadBytes(storageRef, imageFile);
+        uploadedImageUrl = await getDownloadURL(storageRef);
+      } catch (err) {
+        console.error("Upload error:", err);
+        alert("Gagal upload gambar.");
+        setLoading(false);
+        return;
+      }
+    }
+
+    const payload = {
+      ...form,
+      className: realClassName,
+      slots: parseInt(form.slots),
+      duration: Number(form.duration),
+      calorieBurn: form.calorieBurn ? Number(form.calorieBurn) : undefined,
+      imageUrl: uploadedImageUrl,
+    };
+
     try {
-      const payload = { ...form, slots: parseInt(form.slots) };
       if (classId) {
         await updateDoc(doc(db, "classes", classId), payload);
       } else {
@@ -149,16 +235,35 @@ export default function ClassForm() {
         </div>
 
         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Kelas & custom */}
           <div className="md:col-span-2">
             <label className="block font-semibold mb-1 text-gray-700">Nama/Jenis Kelas</label>
-            <select name="className" value={form.className} onChange={handleChange} required className="w-full border border-gray-300 px-4 py-2 rounded-lg shadow-sm">
+            <select
+              name="className"
+              value={form.className}
+              onChange={handleClassNameChange}
+              required
+              className="w-full border border-gray-300 px-4 py-2 rounded-lg shadow-sm"
+            >
               <option value="">Pilih Kelas</option>
               {classNames.map((name) => (
                 <option key={name} value={name}>{name}</option>
               ))}
             </select>
+            {form.className === "Lainnya" && (
+              <input
+                type="text"
+                name="customClassName"
+                placeholder="Nama kelas custom..."
+                value={form.customClassName}
+                onChange={e => setForm(prev => ({ ...prev, customClassName: e.target.value }))}
+                className="w-full border mt-2 border-gray-300 px-4 py-2 rounded-lg shadow-sm"
+                required
+              />
+            )}
           </div>
 
+          {/* Tanggal, Jam */}
           <div>
             <label className="block font-semibold mb-1 text-gray-700">Tanggal</label>
             <input type="date" name="date" value={form.date} onChange={handleChange} required className="w-full border border-gray-300 px-4 py-2 rounded-lg shadow-sm" />
@@ -168,6 +273,7 @@ export default function ClassForm() {
             <input type="time" name="time" value={form.time} onChange={handleChange} required className="w-full border border-gray-300 px-4 py-2 rounded-lg shadow-sm" />
           </div>
 
+          {/* Coach, Slot */}
           <div>
             <label className="block font-semibold mb-1 text-gray-700">Coach</label>
             <select name="coach" value={form.coach} onChange={handleChange} required className="w-full border border-gray-300 px-4 py-2 rounded-lg shadow-sm">
@@ -182,6 +288,7 @@ export default function ClassForm() {
             <input type="number" name="slots" value={form.slots || ""} onChange={handleChange} required className="w-full border border-gray-300 px-4 py-2 rounded-lg shadow-sm" />
           </div>
 
+          {/* Tipe, Level */}
           <div>
             <label className="block font-semibold mb-1 text-gray-700">Tipe Kelas</label>
             <select name="type" value={form.type} onChange={handleChange} className="w-full border border-gray-300 px-4 py-2 rounded-lg shadow-sm">
@@ -198,11 +305,13 @@ export default function ClassForm() {
             </select>
           </div>
 
+          {/* Deskripsi */}
           <div className="md:col-span-2">
             <label className="block font-semibold mb-1 text-gray-700">Deskripsi</label>
             <textarea name="description" value={form.description} onChange={handleChange} rows={4} className="w-full border border-gray-300 px-4 py-2 rounded-lg shadow-sm" />
           </div>
 
+          {/* Durasi, Kalori */}
           <div>
             <label className="block font-semibold mb-1 text-gray-700">Durasi (menit)</label>
             <input type="number" name="duration" value={form.duration} onChange={handleChange} className="w-full border border-gray-300 px-4 py-2 rounded-lg shadow-sm" />
@@ -212,10 +321,23 @@ export default function ClassForm() {
             <input type="number" name="calorieBurn" value={form.calorieBurn} onChange={handleChange} className="w-full border border-gray-300 px-4 py-2 rounded-lg shadow-sm" />
           </div>
 
+          {/* Upload Gambar */}
           <div className="md:col-span-2">
-            <label className="block font-semibold mb-1 text-gray-700">Link Gambar (Opsional)</label>
-            <input type="text" name="imageUrl" value={form.imageUrl} onChange={handleChange} className="w-full border border-gray-300 px-4 py-2 rounded-lg shadow-sm" />
-            <p className="text-xs text-gray-500 mt-1">Gunakan gambar dari galeri (akan dibuat terpisah).</p>
+            <label className="block font-semibold mb-1 text-gray-700">Upload Gambar</label>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleImageChange}
+              className="w-full"
+            />
+            {imageError && <div className="text-red-600 text-xs mt-1">{imageError}</div>}
+            {imagePreview && (
+              <div className="mt-2">
+                <Image src={imagePreview} alt="Preview" width={350} height={130} className="rounded-lg object-cover" />
+              </div>
+            )}
+            <p className="text-xs text-gray-500 mt-1">* Gambar harus landscape/lebar, max ukuran file sesuai storage.</p>
           </div>
 
           <div className="md:col-span-2">

@@ -10,6 +10,7 @@ import { AdminSidebar } from "@/components/AdminSidebar";
 import RegulerTab from "./tabs/RegulerTab";
 import BundlingTab from "./tabs/BundlingTab";
 import SpecialTab from "./tabs/SpecialTab";
+import FunctionalTab from "./tabs/FunctionalTab";
 
 
 const navItems = [
@@ -22,7 +23,7 @@ const navItems = [
 ];
 
 export default function AdminClassesPage() {
-  const [activeTab, setActiveTab] = useState<"reguler" | "special" | "bundling">("reguler");
+  const [activeTab, setActiveTab] = useState<"class" | "special" | "bundling" | "functional">("class");
   const [isDrawerOpen, setDrawerOpen] = useState(false);
   const router = useRouter();
 
@@ -34,7 +35,7 @@ export default function AdminClassesPage() {
       <div className="flex-1 p-6">
         <div className="flex justify-between items-center mb-10">
           <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">Manajemen Kelas</h1>
-          {activeTab === "reguler" && (
+          {activeTab === "class" && (
             <button
               onClick={() => router.push("/admin/classes/form")}
               className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-5 py-3 rounded-xl shadow-md hover:scale-105 transition-transform"
@@ -61,14 +62,23 @@ export default function AdminClassesPage() {
               <span className="hidden sm:inline">Tambah Paket</span>
             </button>
           )}
+          {activeTab === "functional" && (
+            <button
+              onClick={() => router.push("/admin/classes/functional-form")}
+              className="flex items-center gap-2 bg-gradient-to-r from-green-500 to-green-700 text-white px-5 py-3 rounded-xl shadow-md hover:scale-105 transition-transform"
+            >
+              <Plus className="w-5 h-5" />
+              <span className="hidden sm:inline">Tambah Paket</span>
+            </button>
+          )}
         </div>
 
         <div className="flex gap-4 mb-6">
           <button
-            onClick={() => setActiveTab("reguler")}
-            className={`px-4 py-2 rounded-full font-semibold shadow transition-all duration-200 ${activeTab === "reguler" ? "bg-blue-600 text-white" : "bg-white text-gray-600 border border-gray-300 hover:bg-gray-100"}`}
+            onClick={() => setActiveTab("class")}
+            className={`px-4 py-2 rounded-full font-semibold shadow transition-all duration-200 ${activeTab === "class" ? "bg-blue-600 text-white" : "bg-white text-gray-600 border border-gray-300 hover:bg-gray-100"}`}
           >
-            Reguler
+            Studio Class
           </button>
           <button
             onClick={() => setActiveTab("special")}
@@ -82,11 +92,18 @@ export default function AdminClassesPage() {
           >
             Paket Bundling
           </button>
+          <button
+            onClick={() => setActiveTab("functional")}
+            className={`px-4 py-2 rounded-full font-semibold shadow transition-all duration-200 ${activeTab === "functional" ? "bg-green-600 text-white" : "bg-white text-gray-600 border border-gray-300 hover:bg-gray-100"}`}
+          >
+            Functional
+          </button>
         </div>
 
-        {activeTab === "reguler" && <RegulerTab />}
+        {activeTab === "class" && <RegulerTab />}
         {activeTab === "special" && <SpecialTab />}
         {activeTab === "bundling" && <BundlingTab />}
+        {activeTab === "functional" && <FunctionalTab />}
 
       </div>
     </main>
