@@ -10,7 +10,7 @@ import { format, subMonths } from "date-fns";
 import { id as localeId } from "date-fns/locale";
 import { motion } from "framer-motion";
 
-const LOGO_URL = "/grindup-logo.jpeg";
+const LOGO_URL = "/grindup-logo.png";
 const DEFAULT_PHOTO = "/default.jpg";
 
 interface MemberData {

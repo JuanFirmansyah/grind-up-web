@@ -389,6 +389,7 @@ const handlePay = async () => {
             <thead className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
               <tr>
                 <th className="p-4 text-left">Nama</th>
+                <th className="p-4 text-left">Nomor HP</th>
                 <th className="p-4 text-left">Email</th>
                 <th className="p-4 text-left">Tipe Member</th>
                 <th className="p-4 text-left">Status</th>
@@ -420,6 +421,7 @@ const handlePay = async () => {
                     className={`border-b hover:bg-gray-50 ${member.deleted ? "opacity-50" : ""}`}
                   >
                     <td className="p-4 font-semibold text-gray-800">{member.name}</td>
+                    <td className="p-4  text-gray-700">{member.phone || "-"}</td>
                     <td className="p-4 text-gray-700">{member.email}</td>
                     <td className="p-4 text-blue-800 font-semibold">
                       {member.memberType && packageMap[member.memberType]

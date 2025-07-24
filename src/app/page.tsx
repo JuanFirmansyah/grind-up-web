@@ -26,7 +26,7 @@ function Navbar() {
     <header className="w-full z-30 bg-white/70 border-b border-gray-100 sticky top-0 backdrop-blur-md shadow-sm">
       <nav className="max-w-6xl mx-auto flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-3">
-          <Image src="/grindup-logo.jpeg" alt="Logo" width={40} height={40} className="rounded-full bg-white border" />
+          <Image src="/grindup-logo.png" alt="Logo" width={40} height={40} className="rounded-full bg-white border" />
           <span className="font-black text-lg tracking-tight text-gray-800">Grind Up Gym</span>
         </div>
         <div className="flex items-center gap-3">
@@ -73,7 +73,7 @@ export default function Home() {
           transition={{ duration: 1.1, delay: 0.2 }}
           className="z-10 flex flex-col items-center"
         >
-          <Image src="/grindup-logo.jpeg" alt="Logo" width={80} height={80} className="rounded-full mb-4 bg-white shadow-lg" />
+          <Image src="/grindup-logo.png" alt="Logo" width={80} height={80} className="rounded-full mb-4 bg-white shadow-lg" />
           <h1 className="text-2xl md:text-3xl font-black tracking-tight text-gray-800 mb-2 text-center drop-shadow-sm">
             Grind Up Fitness System
           </h1>

@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 
 // Asset
-const LOGO_URL = "/grindup-logo.jpeg";
+const LOGO_URL = "/grindup-logo.png";
 const DEFAULT_PHOTO = "/user-default.png";
 
 interface Trainer {

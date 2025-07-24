@@ -36,7 +36,7 @@ export default function InvoicePage({ invoice }: { invoice: InvoiceProps }) {
         <div className="flex flex-col md:flex-row gap-0 md:gap-8">
           {/* Kiri: Logo dan QR */}
           <div className="flex flex-col items-center py-8 px-7 md:w-1/3 bg-black/40 border-r border-[#97CCDD]/40 print:bg-white print:border-none">
-            <Image src="/grindup-logo.jpeg" alt="Logo Gym" width={85} height={85} className="mb-3 rounded-full bg-white shadow-lg" />
+            <Image src="/grindup-logo.png" alt="Logo Gym" width={85} height={85} className="mb-3 rounded-full bg-white shadow-lg" />
             <div className="text-[#97CCDD] text-xl font-black mb-5 text-center select-none tracking-wider print:text-black">GRIND UP FITNESS</div>
             <div className="bg-white p-2 rounded-lg border-2 border-[#97CCDD] shadow-lg mb-2">
               <QRCode value={invoice.qrValue || ""} size={72} />
