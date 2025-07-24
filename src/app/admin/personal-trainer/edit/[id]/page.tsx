@@ -22,7 +22,7 @@ interface TrainerForm {
   specialties: string;
   certifications: string;
   photoUrl: string;
-  whatsapp: string;
+  phone: string;
   status: string;
   maxSlot: string;
   sessionPackages: SessionPackage[];
@@ -48,7 +48,7 @@ export default function EditPersonalTrainerPage() {
     specialties: "",
     certifications: "",
     photoUrl: "",
-    whatsapp: "",
+    phone: "",
     status: "aktif",
     maxSlot: "10",
     sessionPackages: [{ name: "", price: "", note: "" }],
@@ -79,7 +79,7 @@ export default function EditPersonalTrainerPage() {
               ? data.certifications.join(", ")
               : data.certifications || "",
             photoUrl: data.photoUrl || "",
-            whatsapp: data.whatsapp || "",
+            phone: data.phone || "",
             status: data.status || "aktif",
             maxSlot: typeof data.maxSlot === "number" ? data.maxSlot.toString() : "10",
             sessionPackages:
@@ -101,10 +101,10 @@ export default function EditPersonalTrainerPage() {
   const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFieldError({});
     const { name, value } = e.target;
-    if (name === "whatsapp") {
+    if (name === "phone") {
       let wa = value.startsWith("+62") ? value : "+62" + value.replace(/^\+*/, "").replace(/^62/, "");
       wa = "+62" + wa.slice(3).replace(/\D/g, "");
-      setForm((prev) => ({ ...prev, whatsapp: wa }));
+      setForm((prev) => ({ ...prev, phone: wa }));
     } else if (name === "clientCount" || name === "maxSlot") {
       setForm((prev) => ({ ...prev, [name]: value.replace(/\D/g, "") }));
     } else {
@@ -168,11 +168,11 @@ export default function EditPersonalTrainerPage() {
   const validate = () => {
     const errors: { [k: string]: string } = {};
     if (!form.name.trim()) errors.name = "Nama wajib diisi";
-    if (!form.whatsapp.trim() || form.whatsapp === "+62") errors.whatsapp = "Nomor WhatsApp wajib diisi";
-    if (!form.whatsapp.startsWith("+62")) {
-      errors.whatsapp = "Nomor WA harus dimulai dengan +62 (kode negara Indonesia)";
-    } else if (!/^(\+62)[0-9]{9,}$/.test(form.whatsapp)) {
-      errors.whatsapp = "Nomor WA harus valid (contoh: +6281234567890)";
+    if (!form.phone.trim() || form.phone === "+62") errors.phone = "Nomor WhatsApp wajib diisi";
+    if (!form.phone.startsWith("+62")) {
+      errors.phone = "Nomor WA harus dimulai dengan +62 (kode negara Indonesia)";
+    } else if (!/^(\+62)[0-9]{9,}$/.test(form.phone)) {
+      errors.phone = "Nomor WA harus valid (contoh: +6281234567890)";
     }
     if (form.maxSlot && (isNaN(Number(form.maxSlot)) || Number(form.maxSlot) < 1)) {
       errors.maxSlot = "Slot maksimal minimal 1";
@@ -203,7 +203,7 @@ export default function EditPersonalTrainerPage() {
         specialties: form.specialties.split(",").map((s) => s.trim()).filter(Boolean),
         certifications: form.certifications.split(",").map((s) => s.trim()).filter(Boolean),
         photoUrl: form.photoUrl,
-        whatsapp: form.whatsapp.trim(),
+        phone: form.phone.trim(),
         status: form.status,
         maxSlot: form.maxSlot ? Number(form.maxSlot) : 10,
         sessionPackages: form.sessionPackages.filter(
@@ -292,16 +292,16 @@ export default function EditPersonalTrainerPage() {
               <label className="font-semibold mb-1 block">Nomor WhatsApp*</label>
               <input
                 type="text"
-                name="whatsapp"
-                value={form.whatsapp}
+                name="phone"
+                value={form.phone}
                 onChange={handleChange}
                 required
                 autoComplete="off"
-                className={`w-full border ${fieldError.whatsapp ? "border-red-400" : "border-gray-300"} rounded-lg px-3 py-2`}
+                className={`w-full border ${fieldError.phone ? "border-red-400" : "border-gray-300"} rounded-lg px-3 py-2`}
                 placeholder="contoh: +6281234567890"
               />
               <span className="text-xs text-gray-500">Harus awali <b>+62</b> (kode negara Indonesia), hanya angka sesudahnya.</span>
-              {fieldError.whatsapp && <p className="text-xs text-red-500 mt-1">{fieldError.whatsapp}</p>}
+              {fieldError.phone && <p className="text-xs text-red-500 mt-1">{fieldError.phone}</p>}
             </div>
             <div>
               <label className="font-semibold mb-1 block">Lokasi Klub</label>

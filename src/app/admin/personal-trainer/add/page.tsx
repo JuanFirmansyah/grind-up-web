@@ -19,7 +19,7 @@ interface SessionPackage {
 interface FormState {
   name: string;
   email: string;
-  whatsapp: string;
+  phone: string;
   clubLocation: string;
   clientCount: string;
   maxSlot: string;
@@ -34,7 +34,7 @@ interface FormState {
 const DEFAULT_FORM: FormState = {
   name: "",
   email: "",
-  whatsapp: "+62",
+  phone: "+62",
   clubLocation: "",
   clientCount: "0",
   maxSlot: "10",
@@ -88,10 +88,10 @@ export default function AddCoachPage() {
     setError(null);
     setFieldError({});
     const { name, value } = e.target;
-    if (name === "whatsapp") {
+    if (name === "phone") {
       let wa = value.startsWith("+62") ? value : "+62" + value.replace(/^\+*/, "").replace(/^62/, "");
       wa = "+62" + wa.slice(3).replace(/\D/g, "");
-      setForm((prev) => ({ ...prev, whatsapp: wa }));
+      setForm((prev) => ({ ...prev, phone: wa }));
     } else if (name === "clientCount" || name === "maxSlot") {
       setForm((prev) => ({ ...prev, [name]: value.replace(/\D/g, "") }));
     } else {
@@ -126,11 +126,11 @@ export default function AddCoachPage() {
     const errors: { [k: string]: string } = {};
     if (!form.name.trim()) errors.name = "Nama wajib diisi";
     if (!form.email.trim()) errors.email = "Email wajib diisi";
-    if (!form.whatsapp.trim() || form.whatsapp === "+62") errors.whatsapp = "Nomor WhatsApp wajib diisi";
-    if (!form.whatsapp.startsWith("+62")) {
-      errors.whatsapp = "Nomor WA harus diawali +62";
-    } else if (!/^(\+62)[0-9]{9,}$/.test(form.whatsapp)) {
-      errors.whatsapp = "Nomor WA harus valid (contoh: +6281234567890)";
+    if (!form.phone.trim() || form.phone === "+62") errors.phone = "Nomor phone wajib diisi";
+    if (!form.phone.startsWith("+62")) {
+      errors.phone = "Nomor WA harus diawali +62";
+    } else if (!/^(\+62)[0-9]{9,}$/.test(form.phone)) {
+      errors.phone = "Nomor WA harus valid (contoh: +6281234567890)";
     }
     if (!form.maxSlot || Number(form.maxSlot) < 1) errors.maxSlot = "Slot minimal 1";
     if (!form.photoUrl) errors.photoUrl = "Foto coach wajib di-upload!";
@@ -152,7 +152,7 @@ export default function AddCoachPage() {
       const errors = await validate();
       if (Object.keys(errors).length > 0) {
         setFieldError(errors);
-        if (errors.whatsapp && waRef.current) waRef.current.focus();
+        if (errors.phone && waRef.current) waRef.current.focus();
         setSaving(false);
         return;
       }
@@ -160,7 +160,7 @@ export default function AddCoachPage() {
       await addDoc(collection(db, "users"), {
         ...form,
         email: form.email.trim().toLowerCase(),
-        whatsapp: form.whatsapp.trim(),
+        phone: form.phone.trim(),
         role: "coach",
         clientCount: form.clientCount ? Number(form.clientCount) : 0,
         maxSlot: form.maxSlot ? Number(form.maxSlot) : 10,
@@ -264,24 +264,24 @@ export default function AddCoachPage() {
               {fieldError.email && <p className="text-xs text-red-500 mt-1">{fieldError.email}</p>}
             </div>
             <div>
-              <label className="font-semibold mb-1 block">Nomor WhatsApp*</label>
+              <label className="font-semibold mb-1 block">Nomor phone*</label>
               <input
                 ref={waRef}
                 type="text"
-                name="whatsapp"
-                value={form.whatsapp}
+                name="phone"
+                value={form.phone}
                 onChange={handleChange}
                 required
                 autoComplete="off"
                 minLength={13}
                 maxLength={16}
-                className={`w-full border ${fieldError.whatsapp ? "border-red-400" : "border-gray-300"} rounded-lg px-3 py-2`}
+                className={`w-full border ${fieldError.phone ? "border-red-400" : "border-gray-300"} rounded-lg px-3 py-2`}
                 placeholder="contoh: +6281234567890"
                 inputMode="numeric"
                 pattern="\+62[0-9]{9,13}"
               />
               <span className="text-xs text-gray-500">Hanya angka setelah <b>+62</b>, contoh: +6281234567890</span>
-              {fieldError.whatsapp && <p className="text-xs text-red-500 mt-1">{fieldError.whatsapp}</p>}
+              {fieldError.phone && <p className="text-xs text-red-500 mt-1">{fieldError.phone}</p>}
             </div>
             <div>
               <label className="font-semibold mb-1 block">Lokasi Klub</label>

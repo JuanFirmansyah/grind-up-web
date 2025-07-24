@@ -10,8 +10,10 @@
   },
   "dependencies": {
     "date-fns": "^2.30.0",
+    "dayjs": "^1.11.13",
     "firebase": "^11.9.1",
     "framer-motion": "^12.18.1",
+    "html2pdf.js": "^0.10.3",
     "lucide-react": "^0.518.0",
     "next": "15.3.3",
     "qrcode": "^1.5.4",

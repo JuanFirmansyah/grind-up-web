@@ -1,4 +1,3 @@
-// src/app/admin/invoice/[id]/page.tsx
 "use client";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
@@ -19,6 +18,7 @@ export default function InvoiceDetailPage() {
           const d = snap.data();
           setData({
             id: id,
+            memberId: d.memberId || "-",
             status: d.status || "pending",
             memberName: d.name || "-",
             memberEmail: d.email || "-",
