@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import Image from "next/image";
+import { motion } from "framer-motion";
 
 interface NavItem {
   label: string;
@@ -27,7 +28,7 @@ interface NavItem {
 
 export function AdminSidebar({ 
   navItems: initialNavItems, 
-  showLogout = false, 
+  showLogout = true, 
   onLogout 
 }: {
   navItems: Omit<NavItem, 'icon'>[];
@@ -37,7 +38,19 @@ export function AdminSidebar({
   const pathname = usePathname();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isMounted, setIsMounted] = useState(false);
+
+  // Color palette based on #97CCDD (base color)
+  const colors = {
+    base: "#97CCDD",
+    light: "#C1E3ED",
+    dark: "#6FB5CC",
+    darker: "#4A9EBB",
+    complementary: "#DDC497", // Warm beige for contrast
+    accent: "#DD97CC", // Soft pink for highlights
+    text: "#2D3748",
+    textLight: "#F8FAFC"
+  };
 
   // Map icons to nav items
   const iconMap: Record<string, React.ReactNode> = {
@@ -56,6 +69,7 @@ export function AdminSidebar({
   }));
 
   useEffect(() => {
+    setIsMounted(true);
     const handleResize = () => {
       setIsMobile(window.innerWidth < 768);
       if (window.innerWidth < 768) {
@@ -63,15 +77,13 @@ export function AdminSidebar({
       }
     };
 
-    handleResize();
-    window.addEventListener('resize', handleResize);
-
-    // Simulate loading
-    const timer = setTimeout(() => setIsLoading(false), 500);
+    if (typeof window !== 'undefined') {
+      handleResize();
+      window.addEventListener('resize', handleResize);
+    }
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      clearTimeout(timer);
     };
   }, []);
 
@@ -79,69 +91,49 @@ export function AdminSidebar({
     setIsCollapsed(!isCollapsed);
   };
 
-  // Ganti bagian loading state dengan ini:
-  if (isLoading) {
+  if (!isMounted) {
     return (
       <aside className={cn(
-        "bg-gradient-to-b from-blue-700 to-blue-800 text-white min-h-screen py-6 px-4 transition-all duration-300 ease-in-out",
-        isCollapsed ? "w-20" : "w-64",
-        isMobile && "fixed z-50 h-full"
-      )}>
-        <div className="flex flex-col space-y-8">
-          {/* Logo Skeleton */}
-          <div className={cn(
-            "h-8 bg-blue-600 rounded animate-pulse",
-            isCollapsed ? "w-10 mx-auto" : "w-40"
-          )} />
-          
-          {/* Menu Items Skeleton */}
-          <div className="space-y-4">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div 
-                key={i} 
-                className={cn(
-                  "h-10 bg-blue-600 rounded animate-pulse",
-                  isCollapsed ? "w-10 mx-auto" : "w-full"
-                )} 
-              />
-            ))}
-          </div>
-          
-          {/* Logout Button Skeleton */}
-          {showLogout && (
-            <div className={cn(
-              "h-10 bg-red-500/50 rounded animate-pulse mt-6",
-              isCollapsed ? "w-10 mx-auto" : "w-full"
-            )} />
-          )}
-        </div>
-      </aside>
+        `bg-gradient-to-b from-[${colors.darker}] to-[${colors.dark}] text-[${colors.textLight}] min-h-screen py-6 px-4 transition-all duration-300 ease-in-out`,
+        isCollapsed ? "w-20" : "w-64"
+      )}></aside>
     );
   }
 
   return (
-    <aside className={cn(
-      "bg-gradient-to-b from-blue-700 to-blue-800 text-white min-h-screen py-6 px-4 transition-all duration-300 ease-in-out shadow-xl",
-      isCollapsed ? "w-20" : "w-64",
-      isMobile && "fixed z-50 h-full"
-    )}>
+    <motion.aside
+      initial={{ x: 0 }}
+      animate={{ 
+        width: isCollapsed ? "5rem" : "16rem",
+        transition: { type: "spring", stiffness: 300, damping: 30 }
+      }}
+      className={cn(
+      `bg-gradient-to-b from-[${colors.darker}] to-[${colors.dark}] text-[${colors.textLight}] min-h-screen py-6 px-4 shadow-xl relative`,
+      isMobile ? "hidden" : "block" // Hide completely on mobile
+    )}
+    >
       {/* Collapse Button */}
-      <button 
+      <motion.button 
         onClick={toggleSidebar}
-        className="absolute -right-3 top-6 rounded-full bg-white p-1 shadow-md hover:bg-gray-100 transition-colors"
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.95 }}
+        className={`absolute -right-3 top-6 rounded-full bg-[${colors.light}] p-1 shadow-md hover:bg-[${colors.base}] transition-colors z-10`}
       >
         {isCollapsed ? (
-          <ChevronRight className="h-5 w-5 text-blue-800" />
+          <ChevronRight className={`h-5 w-5 text-[${colors.darker}]`} />
         ) : (
-          <ChevronLeft className="h-5 w-5 text-blue-800" />
+          <ChevronLeft className={`h-5 w-5 text-[${colors.darker}]`} />
         )}
-      </button>
+      </motion.button>
 
       {/* Logo/Brand */}
-      <div className="flex items-center justify-center mb-8 overflow-hidden">
+      <motion.div 
+        className="flex items-center justify-center mb-8 overflow-hidden"
+        layout
+      >
         {isCollapsed ? (
           <Image
-            src="/grindup-logo.png" // path icon kecil, wajib ada di public/
+            src="/grindup-logo.png"
             alt="Grind Up"
             width={36}
             height={36}
@@ -151,7 +143,7 @@ export function AdminSidebar({
         ) : (
           <div className="flex items-center gap-3">
             <Image
-              src="/grindup-logo.png" // path logo full, wajib ada di public/
+              src="/grindup-logo.png"
               alt="Grind Up"
               width={160}
               height={40}
@@ -160,62 +152,77 @@ export function AdminSidebar({
             />
           </div>
         )}
-      </div>
+      </motion.div>
 
       {/* Navigation */}
       <nav className="space-y-2">
         {navItems.map((item, index) => (
-          <Link
+          <motion.div
             key={index}
-            href={item.href}
-            className={cn(
-              "flex items-center gap-3 px-4 py-3 rounded-lg transition-all hover:bg-blue-600/50 group",
-              pathname === item.href && "bg-blue-600 font-medium",
-              isCollapsed ? "justify-center" : "justify-start"
-            )}
+            whileHover={{ scale: isCollapsed ? 1.05 : 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            transition={{ type: "spring", stiffness: 400, damping: 10 }}
           >
-            <span className={cn(
-              "transition-colors",
-              pathname === item.href ? "text-white" : "text-blue-200 group-hover:text-white"
-            )}>
-              {item.icon}
-            </span>
-            {!isCollapsed && (
-              <span className="whitespace-nowrap">{item.label}</span>
-            )}
-          </Link>
+            <Link
+              href={item.href}
+              className={cn(
+                `flex items-center gap-3 px-4 py-3 rounded-lg transition-all hover:bg-[${colors.base}]/50 group`,
+                pathname === item.href && `bg-[${colors.base}] font-medium`,
+                isCollapsed ? "justify-center" : "justify-start"
+              )}
+            >
+              <span className={cn(
+                "transition-colors",
+                pathname === item.href ? `text-[${colors.textLight}]` : `text-[${colors.light}] group-hover:text-[${colors.textLight}]`
+              )}>
+                {item.icon}
+              </span>
+              {!isCollapsed && (
+                <span className="whitespace-nowrap">
+                  {item.label}
+                </span>
+              )}
+            </Link>
+          </motion.div>
         ))}
       </nav>
 
-      {/* Logout Button */}
+      {/* Logout Button - Placed at bottom */}
       {showLogout && (
-        <button
-          onClick={onLogout}
-          className={cn(
-            "flex items-center gap-3 w-full mt-6 px-4 py-3 rounded-lg bg-red-600/90 hover:bg-red-700 text-white transition-colors",
-            isCollapsed ? "justify-center" : "justify-start"
-          )}
+        <motion.div 
+          className="mt-auto pt-4"
+          layout
         >
-          <LogOut className="h-5 w-5" />
-          {!isCollapsed && "Logout"}
-        </button>
+          <motion.button
+            onClick={onLogout}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className={cn(
+              `flex items-center gap-3 w-full px-4 py-3 rounded-lg bg-gradient-to-r from-[${colors.accent}]/90 to-[${colors.complementary}]/90 hover:from-[${colors.accent}] hover:to-[${colors.complementary}] text-[${colors.textLight}] transition-colors`,
+              isCollapsed ? "justify-center" : "justify-start"
+            )}
+          >
+            <LogOut className="h-5 w-5" />
+            {!isCollapsed && "Logout"}
+          </motion.button>
+        </motion.div>
       )}
 
       {/* Collapsed Tooltips */}
-      {isCollapsed && (
+      {isCollapsed && !isMobile && (
         <div className="hidden md:block">
           {navItems.map((item, index) => (
             <div 
               key={`tooltip-${index}`}
-              className="absolute left-full ml-4 px-2 py-1 bg-gray-800 text-white text-sm rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+              className={`absolute left-full ml-4 px-3 py-2 bg-[${colors.dark}] text-[${colors.textLight}] text-sm rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none`}
               style={{ top: `${6.5 + index * 4}rem` }}
             >
               {item.label}
-              <div className="absolute right-full top-1/2 -translate-y-1/2 w-2 h-2 bg-gray-800 transform rotate-45"></div>
+              <div className={`absolute right-full top-1/2 -translate-y-1/2 w-2 h-2 bg-[${colors.dark}] transform rotate-45`}></div>
             </div>
           ))}
         </div>
       )}
-    </aside>
+    </motion.aside>
   );
 }

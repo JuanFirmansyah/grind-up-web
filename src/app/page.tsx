@@ -202,8 +202,8 @@ export default function Home() {
           className="absolute top-0 left-0 w-full h-full bg-black/40 skew-y-3"
         />
         <div className="relative z-10 max-w-xl mx-auto">
-          <h2 className="text-3xl md:text-4xl font-bold mb-4">Siap Mengubah Gym Anda?</h2>
-          <p className="text-lg mb-7">Hubungi kami dan jadwalkan demo langsung untuk bisnis Anda.</p>
+          <h2 className="text-3xl md:text-4xl font-bold mb-4">Kami adalah pilihan terbaik kamu</h2>
+          <p className="text-lg mb-7">Hubungi kami dan konsultasikan badan kamu.</p>
           <a
             href="https://wa.me/6285654444777"
             target="_blank"
