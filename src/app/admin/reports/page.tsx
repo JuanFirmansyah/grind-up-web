@@ -1,3 +1,4 @@
+// src\app\admin\reports\page.tsx
 "use client";
 
 import { useState } from "react";
@@ -21,6 +22,7 @@ const navItems = [
   { label: "Member", href: "/admin/members" },
   { label: "Laporan", href: "/admin/reports" },
   { label: "Pelatih Pribadi", href: "/admin/personal-trainer" },
+  { label: "Galeri", href: "/admin/gallery" },
 ];
 
 const reportMenus = [

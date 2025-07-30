@@ -14,7 +14,8 @@ import {
   ChevronRight,
   Package,
   ShoppingCart,
-  BarChart
+  BarChart,
+  GalleryHorizontalEndIcon
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import Image from "next/image";
@@ -60,7 +61,8 @@ export function AdminSidebar({
     Orders: <ShoppingCart className="h-5 w-5" />,
     Laporan: <BarChart className="h-5 w-5" />,
     Settings: <Settings className="h-5 w-5" />,
-    Documentation: <FileText className="h-5 w-5" />
+    Documentation: <FileText className="h-5 w-5" />,
+    Galeri: <GalleryHorizontalEndIcon className="h-5 w-5" />
   };
 
   const navItems: NavItem[] = initialNavItems.map(item => ({

@@ -1,3 +1,5 @@
+// src\app\admin\classes\tabs\FunctionalTab.tsx
+
 "use client";
 
 import { useEffect, useState } from "react";

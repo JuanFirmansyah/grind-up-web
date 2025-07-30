@@ -18,6 +18,7 @@ const navItems = [
   { label: "Member", href: "/admin/members" },
   { label: "Laporan", href: "/admin/reports" },
   { label: "Pelatih Pribadi", href: "/admin/personal-trainer" },
+  { label: "Galeri", href: "/admin/gallery" },
 ];
 
 interface SessionPackage {

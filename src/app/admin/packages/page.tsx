@@ -221,6 +221,7 @@ export default function MembershipPackagesPage() {
           { label: "Member", href: "/admin/members" },
           { label: "Laporan", href: "/admin/reports" },
           { label: "Pelatih Pribadi", href: "/admin/personal-trainer" },
+          { label: "Galeri", href: "/admin/gallery" },
         ]}
       />
       <AdminTopbar onOpen={() => setDrawerOpen(true)} />
@@ -232,6 +233,7 @@ export default function MembershipPackagesPage() {
           { label: "Member", href: "/admin/members" },
           { label: "Laporan", href: "/admin/reports" },
           { label: "Pelatih Pribadi", href: "/admin/personal-trainer" },
+          { label: "Galeri", href: "/admin/gallery" },
         ]}
       />
       <div className="flex-1 p-6">
