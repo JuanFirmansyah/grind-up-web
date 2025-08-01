@@ -1,32 +1,24 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
 
-// --- COUNTDOWN LOGIC ---
-const LAUNCH_DATE = new Date("2025-07-15T00:00:00+08:00"); // 15 Juli 2025 WIB
+// GANTI INI: URL APK dari Firebase Storage (pastikan bisa public download)
+const ANDROID_APK_URL = "https://firebasestorage.googleapis.com/v0/b/grind-up.firebasestorage.app/o/apk%2Fgrindup-v1.apk?alt=media&token=1c0a4459-85ec-41dc-b315-859c727c365f";
 
-type CountdownState = { d: number; h: number; m: number; s: number; };
+// Banner baru, ganti sesuai branding kamu
+const HERO_IMAGE_URL = "/hero-app.png"; // Upload file ini ke /public
+const LOGO_URL = "/grindup-logo.png";
 
-function getCountdown(): CountdownState {
-  const now = new Date();
-  const diff = Math.max(0, LAUNCH_DATE.getTime() - now.getTime());
-  const d = Math.floor(diff / (1000 * 60 * 60 * 24));
-  const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
-  const m = Math.floor((diff / (1000 * 60)) % 60);
-  const s = Math.floor((diff / 1000) % 60);
-  return { d, h, m, s };
-}
-
-// NAVIGATION (clean responsive)
+// ========== NAVBAR ==========
 function Navbar() {
   return (
     <header className="w-full z-30 bg-white/70 border-b border-gray-100 sticky top-0 backdrop-blur-md shadow-sm">
       <nav className="max-w-6xl mx-auto flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-3">
-          <Image src="/grindup-logo.png" alt="Logo" width={40} height={40} className="rounded-full bg-white border" />
+          <Image src={LOGO_URL} alt="Logo" width={40} height={40} className="rounded-full bg-white border" />
           <span className="font-black text-lg tracking-tight text-gray-800">Grind Up Gym</span>
         </div>
         <div className="flex items-center gap-3">
@@ -42,88 +34,86 @@ function Navbar() {
   );
 }
 
-// MAIN HOME PAGE
+// ========== HOMEPAGE ==========
 export default function Home() {
-  // State countdown
-  const [countdown, setCountdown] = useState<CountdownState>(getCountdown());
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCountdown(getCountdown());
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const [downloading, setDownloading] = useState(false);
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-[#97CCDD]/50 via-white to-gray-50 flex flex-col">
       <Navbar />
 
       {/* HERO SECTION */}
-      <section className="flex-1 flex flex-col justify-center items-center px-4 py-12 relative">
-        {/* Animasi BG bulat */}
+      <section className="flex-1 flex flex-col md:flex-row justify-center items-center px-4 py-10 relative gap-8">
+        {/* Animasi BG */}
         <motion.div
-          initial={{ scale: 0.85, opacity: 0 }}
-          animate={{ scale: 1.08, opacity: 0.13 }}
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1.1, opacity: 0.13 }}
           transition={{ duration: 1.5, ease: "easeOut" }}
-          className="absolute z-0 left-1/2 top-28 -translate-x-1/2 w-[340px] h-[340px] md:w-[480px] md:h-[480px] bg-[#97CCDD] rounded-full blur-[80px] shadow-xl"
+          className="absolute z-0 left-1/2 top-20 -translate-x-1/2 w-[350px] h-[350px] md:w-[500px] md:h-[500px] bg-[#97CCDD] rounded-full blur-[100px] shadow-2xl"
         />
+
+        {/* Banner kiri */}
         <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 1.1, delay: 0.2 }}
-          className="z-10 flex flex-col items-center"
+          className="z-10 flex-1 flex justify-center"
+          initial={{ opacity: 0, x: -40 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 1, delay: 0.08 }}
         >
-          <Image src="/grindup-logo.png" alt="Logo" width={80} height={80} className="rounded-full mb-4 bg-white shadow-lg" />
-          <h1 className="text-2xl md:text-3xl font-black tracking-tight text-gray-800 mb-2 text-center drop-shadow-sm">
-            Grind Up Fitness System
+          <Image
+            src={HERO_IMAGE_URL}
+            alt="Hero Banner"
+            width={370}
+            height={460}
+            className="rounded-2xl shadow-xl border border-[#97CCDD]/40 bg-white object-cover w-[300px] h-[380px] md:w-[370px] md:h-[460px]"
+            priority
+          />
+        </motion.div>
+
+        {/* Kanan: Judul dan tombol */}
+        <motion.div
+          className="flex-1 flex flex-col justify-center items-center md:items-start z-10 text-center md:text-left"
+          initial={{ opacity: 0, x: 40 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 1, delay: 0.25 }}
+        >
+          <Image src={LOGO_URL} alt="Logo" width={66} height={66} className="rounded-full mb-4 shadow-lg mx-auto md:mx-0" />
+          <h1 className="text-3xl md:text-5xl font-black tracking-tight text-gray-800 mb-3 drop-shadow-sm">
+            Grind Up Gym App<br />
+            <span className="text-[#97CCDD] font-bold">Official Release!</span>
           </h1>
-          <h2 className="text-4xl md:text-5xl font-bold mb-4 text-center mt-2">
-            Jadi Lebih Profesional
-          </h2>
-          <p className="text-lg md:text-xl text-gray-700 mb-3 text-center max-w-2xl">
-            Sistem booking, absensi, dan dashboard admin berbasis aplikasi mobile untuk gym masa kini.
-          </p>
-          <p className="mb-3 text-sm md:text-base text-gray-500 flex flex-col md:flex-row gap-1 justify-center items-center">
-            <span>Ready for Launch</span>
-            <span>
-              <span className="mx-2 hidden md:inline">|</span>
-              Launching <b className="text-accent">{formatDate(LAUNCH_DATE)}</b>
-            </span>
+          <p className="text-lg md:text-xl text-gray-700 mb-5 max-w-xl">
+            Download aplikasi Grind Up Gym versi Android.<br />
+            Pantau jadwal, booking kelas, dan kelola keanggotaan lebih mudah dari genggamanmu!
           </p>
 
-          {/* COUNTDOWN */}
-          <div className="flex justify-center gap-2 md:gap-4 mt-4 mb-8">
-            {(["d", "h", "m", "s"] as Array<keyof CountdownState>).map((unit, i) => (
-              <motion.div
-                key={unit}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.7, delay: 0.2 + i * 0.08 }}
-                className="flex flex-col items-center bg-white/90 backdrop-blur px-4 py-3 rounded-xl shadow border-2 border-[#97CCDD] min-w-[64px]"
-              >
-                <span className="font-extrabold text-2xl md:text-3xl text-[#156477] tabular-nums">
-                  {countdown[unit]}
-                </span>
-                <span className="text-xs font-bold text-[#1CB5E0] uppercase tracking-wide mt-1">
-                  {unit === "d" ? "HARI" : unit === "h" ? "JAM" : unit === "m" ? "MENIT" : "DETIK"}
-                </span>
-              </motion.div>
-            ))}
-          </div>
-
-          <motion.a
-            href="https://wa.me/6285654444777"
-            target="_blank"
-            rel="noopener noreferrer"
-            whileTap={{ scale: 0.96 }}
-            className="inline-block bg-[#1CB5E0] hover:bg-[#156477] text-white font-bold py-3 px-8 rounded-xl shadow-lg transition text-lg mb-2"
-          >
-            Hubungi Kami
-          </motion.a>
-          <div className="mt-2 text-sm text-gray-500">Admin?{" "}
-            <Link href="/login" className="text-blue-700 hover:underline font-medium">
-              Login Dashboard Admin
-            </Link>
+          <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto justify-center md:justify-start items-center">
+            {/* Download APK Android */}
+            <motion.a
+              href={ANDROID_APK_URL}
+              download
+              whileTap={{ scale: 0.97 }}
+              onClick={() => setDownloading(true)}
+              className="inline-flex items-center px-6 py-3 rounded-xl bg-[#1CB5E0] hover:bg-[#156477] text-white font-bold shadow-lg text-lg gap-3 transition active:scale-95 w-full md:w-auto justify-center"
+            >
+              <svg className="w-7 h-7 mr-2" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v12m0 0l-5-5m5 5l5-5M5 20h14" />
+              </svg>
+              Download Android
+              {downloading && (
+                <span className="ml-3 animate-spin rounded-full border-b-2 border-white w-5 h-5"></span>
+              )}
+            </motion.a>
+            {/* iOS Coming Soon */}
+            <motion.button
+              whileTap={{ scale: 0.97 }}
+              className="inline-flex items-center px-6 py-3 rounded-xl bg-gray-200 text-gray-500 font-semibold shadow text-lg gap-3 cursor-not-allowed w-full md:w-auto justify-center"
+              disabled
+            >
+              <svg className="w-7 h-7 mr-2" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 7l-7 7-3-3" />
+              </svg>
+              iOS Coming Soon
+            </motion.button>
           </div>
         </motion.div>
       </section>
@@ -192,7 +182,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* CTA KONTAK */}
+      {/* KONTAK CTA */}
       <section id="kontak" className="bg-[#1CB5E0] text-white py-20 px-4 text-center relative overflow-hidden">
         <motion.div
           initial={{ opacity: 0, scale: 0.7 }}
@@ -216,10 +206,4 @@ export default function Home() {
       </section>
     </main>
   );
-}
-
-// Helper for tanggal launching format
-function formatDate(date: Date) {
-  const opts: Intl.DateTimeFormatOptions = { day: "2-digit", month: "long", year: "numeric", timeZone: "Asia/Makassar" };
-  return date.toLocaleDateString("id-ID", opts);
 }
