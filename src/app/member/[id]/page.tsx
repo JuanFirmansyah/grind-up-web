@@ -3,7 +3,13 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { doc, getDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  Timestamp,
+  collection,
+  type CollectionReference,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import Image from "next/image";
 import QRCode from "react-qr-code";
@@ -14,14 +20,24 @@ import { motion } from "framer-motion";
 const LOGO_URL = "/grindup-logo.png";
 const DEFAULT_PHOTO = "/default.jpg";
 
-type MaybeTimestamp =
-  | Date
-  | number
-  | string
-  | { seconds: number; nanoseconds: number }
-  | { toDate?: () => Date }
-  | null
-  | undefined;
+type MaybeTimestamp = Date | number | string | Timestamp | null | undefined;
+
+interface UserDoc {
+  name?: string;
+  photoURL?: string;
+  role?: string;
+  status?: string;
+  isVerified?: boolean;
+  createdAt?: MaybeTimestamp;
+  qrData?: string;      // sesuai DB terbaru
+  profileURL?: string;  // fallback lama (opsional)
+  expiresAt?: MaybeTimestamp;
+  memberType?: string;
+}
+
+interface PackageDoc {
+  name?: string;
+}
 
 interface MemberData {
   name: string;
@@ -30,31 +46,20 @@ interface MemberData {
   status: string;
   isVerified: boolean;
   createdAt: MaybeTimestamp;
+  qrData?: string;
   profileURL?: string;
-  expiresAt?: MaybeTimestamp; // ✅ sudah pakai expiresAt
-  memberType?: string; // ID paket
+  expiresAt?: MaybeTimestamp;
+  memberType?: string;
 }
 
-// Normalisasi nilai tanggal ke Date (meng-handle Firestore Timestamp, string, number, Date)
 function toDateValue(v: MaybeTimestamp): Date | null {
   if (!v) return null;
   if (v instanceof Date) return v;
+  if (v instanceof Timestamp) return v.toDate();
   if (typeof v === "number") return new Date(v);
   if (typeof v === "string") {
     const d = new Date(v);
-    return isNaN(+d) ? null : d;
-  }
-  // Bentuk Timestamp { seconds, nanoseconds }
-  // @ts-expect-error cek bentuk umum
-  if (typeof v === "object" && typeof v.seconds === "number") {
-    // @ts-expect-error seconds ada di Timestamp
-    return new Date(v.seconds * 1000);
-  }
-  // Objek yang punya toDate()
-  // @ts-expect-error toDate mungkin ada
-  if (typeof v?.toDate === "function") {
-    // @ts-expect-error toDate mungkin ada
-    return v.toDate();
+    return Number.isNaN(d.getTime()) ? null : d;
   }
   return null;
 }
@@ -68,34 +73,40 @@ export default function MemberProfilePage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        if (typeof userId === "string") {
-          const docSnap = await getDoc(doc(db, "users", userId));
-          if (docSnap.exists()) {
-            const docData = docSnap.data() as MemberData;
+        if (typeof userId !== "string") return;
 
-            setData({
-              name: docData.name || "",
-              photoURL: docData.photoURL || "",
-              role: docData.role || "",
-              status: docData.status || "",
-              isVerified: docData.isVerified || false,
-              createdAt: docData.createdAt || null,
-              profileURL: docData.profileURL || "",
-              expiresAt: docData.expiresAt || null, // ✅ gunakan expiresAt
-              memberType: docData.memberType || "",
-            });
+        // ✅ Ketik collection lalu buat doc dari situ (menghindari error generic)
+        const usersCol = collection(db, "users") as CollectionReference<UserDoc>;
+        const userRef = doc(usersCol, userId);
+        const snap = await getDoc(userRef);
+        if (!snap.exists()) return;
 
-            // Ambil nama package dari membership_packages
-            if (docData.memberType) {
-              const pkgSnap = await getDoc(doc(db, "membership_packages", docData.memberType));
-              setPackageName(pkgSnap.exists() ? (pkgSnap.data().name || "") : "");
-            } else {
-              setPackageName("");
-            }
-          }
+        const d = snap.data();
+
+        setData({
+          name: d.name ?? "",
+          photoURL: d.photoURL ?? "",
+          role: d.role ?? "",
+          status: d.status ?? "",
+          isVerified: d.isVerified ?? false,
+          createdAt: d.createdAt ?? null,
+          qrData: d.qrData ?? "",
+          profileURL: d.profileURL ?? "",
+          expiresAt: d.expiresAt ?? null,
+          memberType: d.memberType ?? "",
+        });
+
+        // Ambil nama paket (ketik collection juga)
+        if (d.memberType) {
+          const pkgCol = collection(db, "membership_packages") as CollectionReference<PackageDoc>;
+          const pkgRef = doc(pkgCol, d.memberType);
+          const pkgSnap = await getDoc(pkgRef);
+          setPackageName(pkgSnap.exists() ? (pkgSnap.data().name ?? "") : "");
+        } else {
+          setPackageName("");
         }
-      } catch (error) {
-        console.error("Error fetching member/package data:", error);
+      } catch (e) {
+        console.error("Error fetching member/package data:", e);
       } finally {
         setLoading(false);
       }
@@ -103,8 +114,17 @@ export default function MemberProfilePage() {
     fetchData();
   }, [userId]);
 
+  // Nilai QR yang dipakai
+  const getQrValue = (): string => {
+    if (!data) return "";
+    if (data.qrData && data.qrData.trim().length > 0) return data.qrData.trim();
+    if (data.profileURL && data.profileURL.trim().length > 0) return data.profileURL.trim();
+    const base = process.env.NEXT_PUBLIC_APP_URL || "https://grindupfitness.com";
+    return typeof userId === "string" ? `${base}/member/${userId}` : "";
+  };
+
   const getMembershipStatusColor = () => {
-    const end = toDateValue(data?.expiresAt);
+    const end = toDateValue(data?.expiresAt ?? null);
     if (!end) return "text-gray-500";
     const today = new Date();
     const diff = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
@@ -114,7 +134,7 @@ export default function MemberProfilePage() {
   };
 
   const getActiveRange = () => {
-    const end = toDateValue(data?.expiresAt);
+    const end = toDateValue(data?.expiresAt ?? null);
     if (!end) return "-";
     const start = subMonths(end, 1);
     return `${format(start, "dd MMM yy", { locale: localeId })} - ${format(end, "dd MMM yy", { locale: localeId })}`;
@@ -151,14 +171,7 @@ export default function MemberProfilePage() {
           {/* Panel kiri */}
           <div className="flex flex-col items-center justify-center bg-[#97CCDD] h-full min-h-[260px] py-8 px-6 md:rounded-l-2xl">
             <div className="bg-white rounded-full p-2 shadow-lg border-2 border-white w-28 h-28 flex items-center justify-center mb-3">
-              <Image
-                src={LOGO_URL}
-                alt="Logo Gym"
-                width={90}
-                height={90}
-                className="rounded-full object-contain w-20 h-20"
-                priority
-              />
+              <Image src={LOGO_URL} alt="Logo Gym" width={90} height={90} className="rounded-full object-contain w-20 h-20" priority />
             </div>
             <div className="text-[#156477] font-black text-2xl text-center leading-tight mt-2 drop-shadow tracking-wide select-none">
               GRIND UP<br />FITNESS
@@ -182,7 +195,7 @@ export default function MemberProfilePage() {
               priority
             />
             <div className="bg-white p-1 rounded-lg border-2 border-dashed border-[#97CCDD] shadow-sm">
-              <QRCode value={data.profileURL || ""} size={70} />
+              <QRCode value={getQrValue()} size={70} />
             </div>
             <span className="text-[10px] text-gray-400 mt-0.5">QR Profil</span>
           </div>
@@ -202,18 +215,10 @@ export default function MemberProfilePage() {
             </div>
 
             <div className="flex flex-wrap gap-2 mb-2">
-              <span
-                className={`inline-block px-2 py-0.5 text-xs rounded-full font-bold ${
-                  data.status === "aktif" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"
-                }`}
-              >
+              <span className={`inline-block px-2 py-0.5 text-xs rounded-full font-bold ${data.status === "aktif" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}>
                 {data.status === "aktif" ? "AKTIF" : "TIDAK AKTIF"}
               </span>
-              <span
-                className={`inline-block px-2 py-0.5 text-xs rounded-full font-semibold ${
-                  data.isVerified ? "bg-blue-100 text-blue-600" : "bg-gray-100 text-gray-400"
-                }`}
-              >
+              <span className={`inline-block px-2 py-0.5 text-xs rounded-full font-semibold ${data.isVerified ? "bg-blue-100 text-blue-600" : "bg-gray-100 text-gray-400"}`}>
                 {data.isVerified ? "Terverifikasi" : "Belum Verifikasi"}
               </span>
             </div>
@@ -221,15 +226,11 @@ export default function MemberProfilePage() {
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-gray-700 text-sm mb-3">
               <div>
                 <span className="font-semibold mr-1">Daftar:</span>
-                {createdAtDate
-                  ? format(createdAtDate, "dd MMMM yyyy", { locale: localeId })
-                  : "-"}
+                {createdAtDate ? format(createdAtDate, "dd MMMM yyyy", { locale: localeId }) : "-"}
               </div>
               <div>
                 <span className="font-semibold mr-1">Masa Aktif:</span>
-                <span className={getMembershipStatusColor()}>
-                  {getActiveRange()}
-                </span>
+                <span className={getMembershipStatusColor()}>{getActiveRange()}</span>
               </div>
             </div>
 
