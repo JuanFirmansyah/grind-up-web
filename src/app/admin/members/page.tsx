@@ -13,15 +13,9 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import {
-  AdminSidebar
-} from "@/components/AdminSidebar";
-import {
-  AdminMobileDrawer
-} from "@/components/AdminMobileDrawer";
-import {
-  AdminTopbar
-} from "@/components/AdminTopbar";
+import { AdminSidebar } from "@/components/AdminSidebar";
+import { AdminMobileDrawer } from "@/components/AdminMobileDrawer";
+import { AdminTopbar } from "@/components/AdminTopbar";
 import {
   Plus,
   Pencil,
@@ -39,6 +33,51 @@ import dynamic from "next/dynamic";
 
 const QRCode = dynamic(() => import("react-qr-code"), { ssr: false });
 
+/* ============ Date helpers (tanpa any) ============ */
+type DateLike =
+  | Timestamp
+  | { seconds: number; nanoseconds?: number }
+  | string
+  | number
+  | Date
+  | null
+  | undefined;
+
+function isTimestampLike(v: unknown): v is { seconds: number; nanoseconds?: number } {
+  if (typeof v !== "object" || v === null) return false;
+  const obj = v as Record<string, unknown>;
+  return typeof obj.seconds === "number";
+}
+function hasToDate(v: unknown): v is { toDate: () => Date } {
+  if (typeof v !== "object" || v === null) return false;
+  const obj = v as Record<string, unknown>;
+  return typeof obj.toDate === "function";
+}
+function toJSDate(v: DateLike): Date | null {
+  if (!v) return null;
+  if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
+  if (v instanceof Timestamp) return v.toDate();
+  if (isTimestampLike(v)) {
+    const ms = v.seconds * 1000 + ((v.nanoseconds ?? 0) / 1e6);
+    const d = new Date(ms);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof v === "string" || typeof v === "number") {
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (hasToDate(v)) {
+    const d = (v as { toDate: () => Date }).toDate();
+    return d instanceof Date && !isNaN(d.getTime()) ? d : null;
+  }
+  return null;
+}
+function formatDate(v: DateLike, fmt = "dd MMM yyyy"): string {
+  const d = toJSDate(v);
+  return d ? format(d, fmt) : "-";
+}
+
+/* ================== Types ================== */
 interface Member {
   id: string;
   name: string;
@@ -46,19 +85,37 @@ interface Member {
   phone: string;
   status: "aktif" | "non-aktif";
   activityScore?: number;
-  createdAt: string;
-  lastLogin: string;
+  createdAt?: DateLike;
+  lastLogin?: DateLike;
   isVerified: boolean;
   deleted?: boolean;
-  photoURL?: string;
-  qrData?: string;
-  expiredAt?: string | number;
+  photoURL?: string | null;
+  qrData?: string | null;
+  /** standarisasi */
+  expiresAt?: DateLike;
   memberType?: string; // id paket
 }
 
-interface PackageMap {
-  [key: string]: string; // {id: name}
+interface UserRaw {
+  name: string;
+  email: string;
+  phone: string;
+  status: "aktif" | "non-aktif";
+  activityScore?: number;
+  createdAt?: DateLike;
+  lastLogin?: DateLike;
+  isVerified: boolean;
+  deleted?: boolean;
+  photoURL?: string | null;
+  qrData?: string | null;
+  /** data lama/baru (fallback saat baca) */
+  expiresAt?: DateLike;
+  expiredAt?: DateLike;
+  memberType?: string;
 }
+
+interface MembershipPackageDoc { name?: string }
+interface PackageMap { [key: string]: string }
 
 export default function AdminMembersPage() {
   const [loading, setLoading] = useState(true);
@@ -91,8 +148,8 @@ export default function AdminMembersPage() {
       const q = await getDocs(collection(db, "membership_packages"));
       const map: PackageMap = {};
       q.forEach((docSnap) => {
-        const d = docSnap.data();
-        map[docSnap.id] = d.name;
+        const d = docSnap.data() as MembershipPackageDoc;
+        if (d?.name) map[docSnap.id] = d.name;
       });
       setPackageMap(map);
     };
@@ -105,7 +162,7 @@ export default function AdminMembersPage() {
       const querySnapshot = await getDocs(collection(db, "users"));
       const data: Member[] = [];
       querySnapshot.forEach((docSnap) => {
-        const d = docSnap.data();
+        const d = docSnap.data() as UserRaw;
         data.push({
           id: docSnap.id,
           name: d.name,
@@ -113,14 +170,15 @@ export default function AdminMembersPage() {
           phone: d.phone,
           status: d.status,
           activityScore: d.activityScore,
-          createdAt: d.createdAt,
-          lastLogin: d.lastLogin,
+          createdAt: d.createdAt ?? null,
+          lastLogin: d.lastLogin ?? null,
           isVerified: d.isVerified,
           deleted: d.deleted || false,
-          photoURL: d.photoURL || null,
-          qrData: d.qrData || null,
-          expiredAt: d.expiredAt,
-          memberType: d.memberType || "",
+          photoURL: d.photoURL ?? null,
+          qrData: d.qrData ?? null,
+          /** baca standar: expiresAt || expiredAt (untuk data lama) */
+          expiresAt: d.expiresAt ?? d.expiredAt ?? null,
+          memberType: d.memberType ?? "",
         });
       });
       setMembers(data);
@@ -154,7 +212,6 @@ export default function AdminMembersPage() {
     return matchesSearch && matchesStatus && matchesDeleted;
   });
 
-
   const totalPages = Math.ceil(filteredMembers.length / pageSize);
   const paginatedMembers = filteredMembers.slice(
     (currentPage - 1) * pageSize,
@@ -162,8 +219,8 @@ export default function AdminMembersPage() {
   );
 
   // Tombol QR
-  const openQRModal = (qrValue: string, memberName: string) => {
-    setQrValue(qrValue);
+  const openQRModal = (value: string, memberName: string) => {
+    setQrValue(value);
     setQrMemberName(memberName);
   };
 
@@ -177,11 +234,9 @@ export default function AdminMembersPage() {
   }
 
   function formatRupiah(angka: string) {
-  if (!angka) return "";
-  return angka.replace(/\D/g, "")
-    .replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+    if (!angka) return "";
+    return angka.replace(/\D/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   }
-
 
   // --- Modal Pembayaran ---
   const openPayModal = (member: Member) => {
@@ -205,17 +260,14 @@ export default function AdminMembersPage() {
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const file = e.target.files?.[0] ?? null;
     setPayFileError("");
     if (!file) {
       setPayFile(null);
       setPayFilePreview(null);
       return;
     }
-    if (
-      !["image/jpeg", "image/png"].includes(file.type) ||
-      file.size > 3 * 1024 * 1024
-    ) {
+    if (!["image/jpeg", "image/png"].includes(file.type) || file.size > 3 * 1024 * 1024) {
       setPayFile(null);
       setPayFilePreview(null);
       setPayFileError("Hanya file JPG/PNG maksimal 3MB yang diizinkan.");
@@ -225,74 +277,69 @@ export default function AdminMembersPage() {
     setPayFilePreview(URL.createObjectURL(file));
   };
 
-const handlePay = async () => {
-  if (!selectedMember) return;
-  if (!payFile) {
-    setPayFileError("Bukti pembayaran wajib diupload.");
-    return;
-  }
-  setPayLoading(true);
-  try {
-    let newExpired;
-    if (isVisitType(selectedMember)) {
-      newExpired = new Date();
-      newExpired.setDate(newExpired.getDate() + 1);
-      newExpired.setHours(23, 59, 59, 999);
-    } else {
-      const lastExpired = selectedMember.expiredAt
-        ? new Date(selectedMember.expiredAt)
-        : new Date();
-      const now = new Date();
-      const startDate = lastExpired > now ? lastExpired : now;
-      newExpired = new Date(startDate);
-      newExpired.setMonth(newExpired.getMonth() + Number(payMonth));
+  const handlePay = async () => {
+    if (!selectedMember) return;
+    if (!payFile) {
+      setPayFileError("Bukti pembayaran wajib diupload.");
+      return;
     }
+    setPayLoading(true);
+    try {
+      let newExpiry: Date;
+      if (isVisitType(selectedMember)) {
+        newExpiry = new Date();
+        newExpiry.setDate(newExpiry.getDate() + 1);
+        newExpiry.setHours(23, 59, 59, 999);
+      } else {
+        const lastExpiry = toJSDate(selectedMember.expiresAt) ?? new Date();
+        const now = new Date();
+        const startDate = lastExpiry > now ? lastExpiry : now;
+        newExpiry = new Date(startDate);
+        newExpiry.setMonth(newExpiry.getMonth() + Number(payMonth));
+      }
 
-    // Upload gambar ke storage/payments/memberid-timestamp.jpg
-    const fileName = `payments/${selectedMember.id}-${Date.now()}.jpg`;
-    const fileRef = ref(storage, fileName);
-    await uploadBytes(fileRef, payFile);
-    const fileURL = await getDownloadURL(fileRef);
+      // Upload bukti
+      const fileName = `payments/${selectedMember.id}-${Date.now()}.jpg`;
+      const fileRef = ref(storage, fileName);
+      await uploadBytes(fileRef, payFile);
+      const fileURL = await getDownloadURL(fileRef);
 
-    // Update expiredAt di member
-    await updateDoc(doc(db, "users", selectedMember.id), {
-      expiredAt: newExpired.toISOString(),
-      status: "aktif",
-    });
+      // TULIS field standar: expiresAt (Timestamp)
+      const ts = Timestamp.fromDate(newExpiry);
+      await updateDoc(doc(db, "users", selectedMember.id), {
+        expiresAt: ts,
+        status: "aktif",
+      });
 
-    // Catat ke payments
-    await addDoc(collection(db, "payments"), {
-      memberId: selectedMember.id,
-      name: selectedMember.name,
-      payMonth: isVisitType(selectedMember) ? 0 : payMonth,
-      nominal: Number(payNominal.replace(/\./g, "")) || 0, // <-- FORMAT ANGKA!
-      paidAt: Timestamp.now(),
-      expiredAt: newExpired.toISOString(),
-      admin: "admin",
-      imageURL: fileURL,
-    });
+      await addDoc(collection(db, "payments"), {
+        userId: selectedMember.id,
+        name: selectedMember.name,
+        payMonth: isVisitType(selectedMember) ? 0 : payMonth,
+        nominal: Number(payNominal.replace(/\./g, "")) || 0,
+        paidAt: Timestamp.now(),
+        expiresAt: ts,
+        admin: "admin",
+        method: "manual",
+        status: "success",
+        imageURL: fileURL,
+      });
 
-    setMembers((prev) =>
-      prev.map((m) =>
-        m.id === selectedMember.id
-          ? {
-              ...m,
-              expiredAt: newExpired.toISOString(),
-              status: "aktif",
-            }
-          : m
-      )
-    );
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.id === selectedMember.id
+            ? { ...m, expiresAt: ts, status: "aktif" }
+            : m
+        )
+      );
 
-    closePayModal();
-    alert("Pembayaran/perpanjangan berhasil!");
-  } catch {
-    alert("Gagal menyimpan pembayaran!");
-  } finally {
-    setPayLoading(false);
-  }
-};
-
+      closePayModal();
+      alert("Pembayaran berhasil disimpan!");
+    } catch {
+      alert("Gagal menyimpan pembayaran!");
+    } finally {
+      setPayLoading(false);
+    }
+  };
 
   return (
     <main className="min-h-screen flex flex-col md:flex-row bg-white relative">
@@ -423,7 +470,7 @@ const handlePay = async () => {
                     className={`border-b hover:bg-gray-50 ${member.deleted ? "opacity-50" : ""}`}
                   >
                     <td className="p-4 font-semibold text-gray-800">{member.name}</td>
-                    <td className="p-4  text-gray-700">{member.phone || "-"}</td>
+                    <td className="p-4 text-gray-700">{member.phone || "-"}</td>
                     <td className="p-4 text-gray-700">{member.email}</td>
                     <td className="p-4 text-blue-800 font-semibold">
                       {member.memberType && packageMap[member.memberType]
@@ -431,7 +478,10 @@ const handlePay = async () => {
                         : <span className="text-gray-400 italic">Belum dipilih</span>}
                     </td>
                     <td className={`p-4 font-medium capitalize ${member.status === "aktif" ? "text-green-600" : "text-red-500"}`}>{member.status}</td>
-                    <td className="p-4 text-sm">{member.lastLogin ? format(new Date(member.lastLogin), "dd MMM yyyy") : "-"}</td>
+
+                    {/* tanggal kebal tipe */}
+                    <td className="p-4 text-sm">{formatDate(member.lastLogin)}</td>
+
                     <td className="p-4">{member.isVerified ? "✅" : "❌"}</td>
                     <td className="p-4">
                       {member.photoURL ? (
@@ -447,13 +497,11 @@ const handlePay = async () => {
                         <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-sm text-gray-500">?</div>
                       )}
                     </td>
-                    <td className="p-4 text-sm">
-                      {member.expiredAt
-                        ? format(new Date(member.expiredAt), "dd MMM yyyy")
-                        : "-"}
-                    </td>
+
+                    {/* kolom expired (standar: expiresAt) */}
+                    <td className="p-4 text-sm">{formatDate(member.expiresAt)}</td>
+
                     <td className="p-4 flex gap-2">
-                      {/* Tombol Detail */}
                       <button
                         onClick={() => router.push(`/member/${member.id}`)}
                         className="p-2 bg-blue-500 text-white rounded-full hover:scale-110 transition"
@@ -494,7 +542,6 @@ const handlePay = async () => {
                           <RotateCcw className="w-4 h-4" />
                         </button>
                       )}
-                      {/* Tombol QR, generate dari qrData */}
                       {member.qrData && (
                         <button
                           onClick={() => openQRModal(member.qrData!, member.name)}
@@ -513,7 +560,7 @@ const handlePay = async () => {
         </div>
       </div>
 
-      {/* MODAL: Bukti pembayaran/perpanjang */}
+      {/* MODAL: Pembayaran */}
       <AnimatePresence>
         {showPayModal && selectedMember && (
           <motion.div
@@ -540,24 +587,15 @@ const handlePay = async () => {
               </button>
               <h2 className="text-lg font-bold mb-4">Perpanjang / Pembayaran Member</h2>
               <div className="mb-4">
-                <div className="mb-2">
-                  <b>Nama:</b> {selectedMember.name}
-                </div>
-                <div className="mb-2">
-                  <b>Email:</b> {selectedMember.email}
-                </div>
+                <div className="mb-2"><b>Nama:</b> {selectedMember.name}</div>
+                <div className="mb-2"><b>Email:</b> {selectedMember.email}</div>
                 <div className="mb-2">
                   <b>Status:</b>{" "}
                   <span className={selectedMember.status === "aktif" ? "text-green-600" : "text-red-500"}>
                     {selectedMember.status}
                   </span>
                 </div>
-                <div className="mb-2">
-                  <b>Expired Saat Ini:</b>{" "}
-                  {selectedMember.expiredAt
-                    ? format(new Date(selectedMember.expiredAt), "dd MMM yyyy")
-                    : "-"}
-                </div>
+                <div className="mb-2"><b>Expired Saat Ini:</b> {formatDate(selectedMember.expiresAt)}</div>
                 <div className="mb-2">
                   <b>Tipe Member:</b>{" "}
                   {selectedMember.memberType && packageMap[selectedMember.memberType]
@@ -566,11 +604,10 @@ const handlePay = async () => {
                 </div>
               </div>
 
-              {/* Jika Visit */}
               {isVisitType(selectedMember) ? (
                 <div className="mb-3 px-3 py-2 rounded bg-yellow-50 border border-yellow-300 text-yellow-800 font-semibold text-center">
-                  <b>Paket Visit:</b> Masa aktif <b>1 hari</b> sejak pembayaran.<br />
-                  <span className="text-xs text-gray-500">(expired otomatis hari berikutnya jam 23:59)</span>
+                  <b>Paket Visit:</b> Masa aktif <b>1 hari</b> sejak pembayaran.
+                  <br /><span className="text-xs text-gray-500">(expired otomatis hari berikutnya jam 23:59)</span>
                 </div>
               ) : (
                 <div className="mb-3">
@@ -588,7 +625,6 @@ const handlePay = async () => {
                 </div>
               )}
 
-              {/* Input Nominal dengan Format Rupiah */}
               <div className="mb-3">
                 <label className="block mb-1 font-semibold">Nominal Pembayaran (Rp)</label>
                 <input
@@ -605,6 +641,7 @@ const handlePay = async () => {
                   autoComplete="off"
                 />
               </div>
+
               <div className="mb-3">
                 <label className="mb-1 font-semibold flex items-center gap-2">
                   <UploadCloud className="w-5 h-5" /> Bukti Pembayaran (jpg/png, max 3MB)
@@ -626,10 +663,9 @@ const handlePay = async () => {
                     />
                   </div>
                 )}
-                {payFileError && (
-                  <div className="mt-2 text-red-500 text-sm">{payFileError}</div>
-                )}
+                {payFileError && <div className="mt-2 text-red-500 text-sm">{payFileError}</div>}
               </div>
+
               <button
                 onClick={handlePay}
                 className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg mt-2 font-bold flex items-center gap-2 justify-center"
@@ -641,6 +677,7 @@ const handlePay = async () => {
           </motion.div>
         )}
 
+        {/* MODAL: Preview Foto */}
         {modalImage && (
           <motion.div
             key="modal"
@@ -675,7 +712,7 @@ const handlePay = async () => {
           </motion.div>
         )}
 
-        {/* MODAL QR, pakai react-qr-code */}
+        {/* MODAL QR */}
         {qrValue && (
           <motion.div
             key="qr"
@@ -700,11 +737,9 @@ const handlePay = async () => {
                 <X className="w-5 h-5" />
               </button>
               <div className="mb-4 text-lg font-semibold">{qrMemberName}</div>
-              {qrValue && (
-                <div className="mx-auto mb-2 bg-white rounded-lg p-2 w-fit">
-                  <QRCode value={qrValue} size={180} className="mx-auto rounded" />
-                </div>
-              )}
+              <div className="mx-auto mb-2 bg-white rounded-lg p-2 w-fit">
+                <QRCode value={qrValue} size={180} className="mx-auto rounded" />
+              </div>
               <div className="text-xs text-gray-400 mb-2">Scan untuk buka profil member</div>
             </motion.div>
           </motion.div>

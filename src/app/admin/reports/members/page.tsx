@@ -4,13 +4,13 @@
 
 import { useEffect, useState } from "react";
 import { db } from "@/lib/firebase";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, Timestamp } from "firebase/firestore";
 import { PhoneCall, Clock } from "lucide-react";
 import { AdminTopbar } from "@/components/AdminTopbar";
 import { AdminSidebar } from "@/components/AdminSidebar";
 import { AdminMobileDrawer } from "@/components/AdminMobileDrawer";
 
-// Navigation items, bisa copy dari project-mu
+// Navigation items
 const navItems = [
   { label: "Dashboard", href: "/admin/dashboard" },
   { label: "Kelas", href: "/admin/classes" },
@@ -20,14 +20,48 @@ const navItems = [
   { label: "Pelatih Pribadi", href: "/admin/personal-trainer" },
 ];
 
-// Define a type for Member
+// ===== Types =====
+type MaybeTimestamp = string | number | Date | Timestamp | null | undefined;
+
+interface MemberDoc {
+  name?: string;
+  phone?: string;
+  expiresAt?: MaybeTimestamp; // ✅ ganti field
+  role?: string;
+  // tambahkan field lain jika perlu
+}
+
 interface Member {
   id: string;
   name?: string;
   phone?: string;
-  expiredAt?: string | number;
+  expiresAt?: MaybeTimestamp;
   role?: string;
-  // Add other fields as needed
+}
+
+// ===== Utils tanggal =====
+function toDateValue(v: MaybeTimestamp): Date | null {
+  if (!v) return null;
+  if (v instanceof Date) return v;
+  if (v instanceof Timestamp) return v.toDate();
+  if (typeof v === "number") return new Date(v);
+  if (typeof v === "string") {
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+function formatDate(v?: MaybeTimestamp): string {
+  const d = toDateValue(v ?? null);
+  return d ? d.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" }) : "-";
+}
+
+function daysUntil(v: MaybeTimestamp): number | null {
+  const end = toDateValue(v);
+  if (!end) return null;
+  const now = new Date();
+  return Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 }
 
 export default function MemberReportPage() {
@@ -42,10 +76,16 @@ export default function MemberReportPage() {
       setLoading(true);
       const snap = await getDocs(collection(db, "members"));
       const data: Member[] = [];
-      snap.forEach((doc) => {
-        const d = doc.data();
+      snap.forEach((docSnap) => {
+        const d = docSnap.data() as MemberDoc;
         if (d.role === "member") {
-          data.push({ id: doc.id, ...d });
+          data.push({
+            id: docSnap.id,
+            name: d.name,
+            phone: d.phone,
+            role: d.role,
+            expiresAt: d.expiresAt ?? null, // ✅ gunakan expiresAt
+          });
         }
       });
       setMembers(data);
@@ -58,15 +98,24 @@ export default function MemberReportPage() {
   const filtered = members.filter((m) => {
     // Search by name or phone
     const q = search.toLowerCase();
-    const match = m.name?.toLowerCase().includes(q) || m.phone?.includes(q);
+    const match =
+      (m.name?.toLowerCase().includes(q) ?? false) ||
+      (m.phone?.includes(q) ?? false);
+
     // Status
-    const isExp = !!(m.expiredAt && new Date(m.expiredAt) < new Date());
-    const days = m.expiredAt ? daysUntil(m.expiredAt) : null;
-    const expSoon = days !== null && days <= 7 && days >= 0;
+    const isExpired = (() => {
+      const end = toDateValue(m.expiresAt ?? null);
+      return end ? end < new Date() : false;
+    })();
+
+    const dleft = daysUntil(m.expiresAt ?? null);
+    const expSoon = dleft !== null && dleft <= 7 && dleft >= 0;
+
     let statusOk = true;
-    if (statusFilter === "active") statusOk = !isExp;
-    if (statusFilter === "expired") statusOk = isExp;
-    if (statusFilter === "expiring") statusOk = expSoon && !isExp;
+    if (statusFilter === "active") statusOk = !isExpired;
+    if (statusFilter === "expired") statusOk = isExpired;
+    if (statusFilter === "expiring") statusOk = expSoon && !isExpired;
+
     return match && statusOk;
   });
 
@@ -124,27 +173,29 @@ export default function MemberReportPage() {
                   </tr>
                 )}
                 {filtered.map((m) => {
-                  const isExp = m.expiredAt && new Date(m.expiredAt) < new Date();
-                  const days = m.expiredAt ? daysUntil(m.expiredAt) : null;
-                  const expSoon = days !== null && days <= 7 && days >= 0;
+                  const endDate = toDateValue(m.expiresAt ?? null);
+                  const isExpired = endDate ? endDate < new Date() : false;
+                  const dleft = daysUntil(m.expiresAt ?? null);
+                  const expSoon = dleft !== null && dleft <= 7 && dleft >= 0;
+
                   return (
                     <tr key={m.id} className={expSoon ? "bg-yellow-50" : ""}>
                       <td className="p-3">{m.name}</td>
                       <td className="p-3">{m.phone || "-"}</td>
                       <td className="p-3">
-                        {isExp ? (
+                        {isExpired ? (
                           <span className="px-2 py-1 rounded text-xs bg-red-100 text-red-500">Expired</span>
                         ) : (
                           <span className="px-2 py-1 rounded text-xs bg-green-100 text-green-600">Aktif</span>
                         )}
                       </td>
                       <td className="p-3">
-                        {m.expiredAt ? (
+                        {m.expiresAt ? (
                           <span>
-                            {formatDate(m.expiredAt)}
+                            {formatDate(m.expiresAt)}
                             {expSoon && (
-                              <span className="ml-2 px-2 py-0.5 bg-yellow-200 text-yellow-700 rounded text-xs flex items-center gap-1">
-                                <Clock className="w-3 h-3" /> {days} hari lagi
+                              <span className="ml-2 px-2 py-0.5 bg-yellow-200 text-yellow-700 rounded text-xs inline-flex items-center gap-1">
+                                <Clock className="w-3 h-3" /> {dleft} hari lagi
                               </span>
                             )}
                           </span>
@@ -160,7 +211,7 @@ export default function MemberReportPage() {
                             )}%2C%20masa%20aktif%20member%20gym%20Anda%20akan%20segera%20berakhir.%20Yuk%20perpanjang%20sekarang!`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className={`inline-flex items-center gap-1 px-3 py-1 rounded bg-green-500 hover:bg-green-600 text-white text-xs`}
+                            className="inline-flex items-center gap-1 px-3 py-1 rounded bg-green-500 hover:bg-green-600 text-white text-xs"
                           >
                             <PhoneCall className="w-4 h-4" />
                             WhatsApp
@@ -180,16 +231,4 @@ export default function MemberReportPage() {
       </div>
     </main>
   );
-}
-
-// Utility function untuk format tanggal dan sisa hari
-function formatDate(dateStr?: string | number): string {
-  if (!dateStr) return "-";
-  const date = new Date(dateStr);
-  return date.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
-}
-function daysUntil(expiredAt: string | number) {
-  const now = new Date();
-  const exp = new Date(expiredAt);
-  return Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 }

@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "migrate:dry": "node export.mjs --dry",
+    "migrate:run": "node export.mjs --rm-old"
   },
   "dependencies": {
     "date-fns": "^2.30.0",

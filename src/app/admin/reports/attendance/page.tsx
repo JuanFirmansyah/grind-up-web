@@ -20,7 +20,7 @@ const navItems = [
 
 interface Attendance {
   id: string;
-  memberId?: string;
+  userId?: string;
   name?: string;
   checkInAt?: string | number; // Date string/timestamp
   checkOutAt?: string | number;
@@ -52,7 +52,7 @@ export default function AttendanceReportPage() {
   const filtered = attendances.filter(a => {
     // Search by name
     const q = search.toLowerCase();
-    const match = a.name?.toLowerCase().includes(q) || a.memberId?.includes(q);
+    const match = a.name?.toLowerCase().includes(q) || a.userId?.includes(q);
     // Filter by date
     let dateOk = true;
     if (date && a.checkInAt) {
@@ -74,7 +74,7 @@ export default function AttendanceReportPage() {
         <div className="flex flex-col md:flex-row gap-2 mb-4">
           <input
             type="text"
-            placeholder="Cari nama/member ID..."
+            placeholder="Cari nama/user ID..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="border px-3 py-2 rounded w-full md:w-1/3"
@@ -96,6 +96,7 @@ export default function AttendanceReportPage() {
             <table className="min-w-full text-xs md:text-sm">
               <thead>
                 <tr className="bg-blue-50">
+                  <th className="p-3 text-left">User ID</th>
                   <th className="p-3 text-left">Nama</th>
                   <th className="p-3 text-left">Tanggal & Jam Masuk</th>
                   <th className="p-3 text-left">Kelas</th>
@@ -112,6 +113,7 @@ export default function AttendanceReportPage() {
                 )}
                 {filtered.map((a) => (
                   <tr key={a.id}>
+                    <td className="p-3">{a.userId || "-"}</td>
                     <td className="p-3">{a.name || "-"}</td>
                     <td className="p-3">{a.checkInAt ? formatDateTime(a.checkInAt) : "-"}</td>
                     <td className="p-3">{a.className || "-"}</td>

@@ -18,7 +18,11 @@
 /out/
 .env.local
 serviceAccountKey.json
-export.md
+export.js.md
+export.mjs.md
+import-excel-expires.mjs.md
+REKAP_DATA_MEMBER.xlsx
+
 
 # production
 /build
