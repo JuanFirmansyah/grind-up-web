@@ -1,7 +1,7 @@
 // src/app/member/[id]/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   doc,
@@ -16,6 +16,9 @@ import QRCode from "react-qr-code";
 import { format, subMonths } from "date-fns";
 import { id as localeId } from "date-fns/locale";
 import { motion } from "framer-motion";
+import { toPng } from "html-to-image";           // ✅ Export PNG
+import jsPDF from "jspdf";                        // ✅ Export PDF
+import { Download, FileText } from "lucide-react";// ✅ Ikon modern
 
 const LOGO_URL = "/grindup-logo.png";
 const DEFAULT_PHOTO = "/default.jpg";
@@ -64,11 +67,26 @@ function toDateValue(v: MaybeTimestamp): Date | null {
   return null;
 }
 
+// Utility buat nama file yang aman
+function safeFilename(s: string, fallback = "member-card") {
+  const base = (s || fallback)
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9-_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-_]+|[-_]+$/g, "");
+  return base || fallback;
+}
+
 export default function MemberProfilePage() {
   const { id: userId } = useParams();
   const [data, setData] = useState<MemberData | null>(null);
   const [loading, setLoading] = useState(true);
   const [packageName, setPackageName] = useState<string>("");
+
+  // ✅ ref untuk elemen kartu yang akan di-download
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -140,6 +158,64 @@ export default function MemberProfilePage() {
     return `${format(start, "dd MMM yy", { locale: localeId })} - ${format(end, "dd MMM yy", { locale: localeId })}`;
   };
 
+  // ✅ Handler download kartu sebagai PNG
+  const handleDownloadPNG = async () => {
+    if (!cardRef.current || !data) return;
+    setDownloading(true);
+    try {
+      // Supaya hasil tajam & bersih
+      const dataUrl = await toPng(cardRef.current, {
+        pixelRatio: 3,
+        cacheBust: true,
+        backgroundColor: "#ffffff",
+      });
+
+      const link = document.createElement("a");
+      const filename = `${safeFilename(data.name || "member")}-member-card.png`;
+      link.download = filename;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error("Gagal generate PNG:", err);
+      alert("Maaf, terjadi kendala saat menyiapkan file. Coba lagi ya.");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  // ✅ Handler download kartu sebagai PDF
+  const handleDownloadPDF = async () => {
+    if (!cardRef.current || !data) return;
+    setDownloading(true);
+    try {
+      const el = cardRef.current;
+      const w = el.offsetWidth || 800;
+      const h = el.offsetHeight || 400;
+
+      const dataUrl = await toPng(el, {
+        pixelRatio: 3,
+        cacheBust: true,
+        backgroundColor: "#ffffff",
+      });
+
+      // Buat PDF dengan ukuran sama persis elemen agar 1:1
+      const pdf = new jsPDF({
+        orientation: h >= w ? "portrait" : "landscape",
+        unit: "px",
+        format: [w, h],
+      });
+
+      pdf.addImage(dataUrl, "PNG", 0, 0, w, h);
+      const filename = `${safeFilename(data.name || "member")}-member-card.pdf`;
+      pdf.save(filename);
+    } catch (err) {
+      console.error("Gagal generate PDF:", err);
+      alert("Maaf, terjadi kendala saat menyiapkan PDF.");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center text-gray-500 animate-pulse">
@@ -161,12 +237,46 @@ export default function MemberProfilePage() {
   return (
     <main className="min-h-screen bg-gradient-to-br from-[#97CCDD] via-white to-slate-100 flex items-center justify-center py-10">
       <motion.div
+        ref={cardRef} // ✅ penting: ini yang di-export
         initial={{ opacity: 0, y: 80, rotate: -8, scale: 0.96 }}
         animate={{ opacity: 1, y: 0, rotate: 0, scale: 1 }}
         transition={{ duration: 0.7, type: "spring", stiffness: 90, damping: 16 }}
         className="w-full max-w-4xl bg-white shadow-2xl border-4 border-[#97CCDD] rounded-2xl overflow-hidden relative group"
         style={{ minHeight: 320 }}
       >
+        {/* ✅ Tombol Download (modern, non-kampungan) */}
+        <div className="absolute z-20 top-3 right-3 flex gap-2">
+          <button
+            onClick={handleDownloadPNG}
+            aria-label="Download kartu member (PNG)"
+            title="Download kartu member (PNG)"
+            className="inline-flex items-center gap-2 rounded-xl px-3 py-2
+                       bg-white/70 backdrop-blur-md border border-white/60 shadow-md
+                       text-gray-700 hover:bg-white hover:shadow-lg active:scale-95
+                       transition-all duration-150"
+          >
+            <Download className="h-5 w-5" />
+            <span className="text-sm font-semibold hidden sm:inline">
+              {downloading ? "Menyiapkan..." : "PNG"}
+            </span>
+          </button>
+
+          <button
+            onClick={handleDownloadPDF}
+            aria-label="Download kartu member (PDF)"
+            title="Download kartu member (PDF)"
+            className="inline-flex items-center gap-2 rounded-xl px-3 py-2
+                       bg-white/70 backdrop-blur-md border border-white/60 shadow-md
+                       text-gray-700 hover:bg-white hover:shadow-lg active:scale-95
+                       transition-all duration-150"
+          >
+            <FileText className="h-5 w-5" />
+            <span className="text-sm font-semibold hidden sm:inline">
+              {downloading ? "Menyiapkan..." : "PDF"}
+            </span>
+          </button>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-[280px_150px_1fr] h-full">
           {/* Panel kiri */}
           <div className="flex flex-col items-center justify-center bg-[#97CCDD] h-full min-h-[260px] py-8 px-6 md:rounded-l-2xl">
@@ -243,7 +353,7 @@ export default function MemberProfilePage() {
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center gap-2 bg-[#1CB5E0] hover:bg-[#156477] text-white font-bold py-2 px-5 rounded-xl shadow-lg transition-all duration-200 active:scale-95 ring-2 ring-[#97CCDD]/30"
               >
-                <svg className="w-5 h-5" viewBox="0 0 32 32" fill="currentColor">
+                <svg className="w-5 h-5" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
                   <path d="M16 .01a15.92 15.92 0 0 0-13.47 24.93L0 32l7.23-2.35A15.91 15.91 0 1 0 16 .01zm7.36 23.39c-.31.88-1.6 1.62-2.2 1.72-.58.09-1.3.13-2.09-.13-.48-.15-1.09-.36-1.88-.7-3.31-1.43-5.47-4.75-5.63-4.97-.16-.22-1.34-1.78-1.34-3.38s.85-2.38 1.15-2.7c.28-.3.62-.38.82-.38.21 0 .41.01.59.01.18 0 .44-.07.69.52.25.59.85 2.05.93 2.2.08.15.13.32.03.52-.09.21-.13.33-.25.51-.13.18-.26.4-.37.54-.13.17-.26.35-.11.68.15.33.66 1.09 1.41 1.77 1.08.96 1.99 1.25 2.34 1.39.36.15.56.13.76-.08.21-.22.86-.96 1.09-1.29.23-.33.45-.27.77-.16.32.11 2.04.96 2.39 1.13.35.18.58.27.67.42.1.14.1.81-.21 1.7z" />
                 </svg>
                 Hubungi Admin WhatsApp

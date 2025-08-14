@@ -1,4 +1,4 @@
-// src\app\admin\reports\page.tsx
+// src/app/admin/reports/page.tsx
 "use client";
 
 import { useState } from "react";
@@ -14,6 +14,18 @@ import {
   Briefcase,
   Building2,
 } from "lucide-react";
+
+/* ================== Color Palette (konsisten) ================== */
+const colors = {
+  base: "#97CCDD",
+  light: "#C1E3ED",
+  dark: "#6FB5CC",
+  darker: "#4A9EBB",
+  complementary: "#DDC497",
+  accent: "#DD97CC",
+  text: "#2D3748",
+  textLight: "#F8FAFC",
+};
 
 const navItems = [
   { label: "Dashboard", href: "/admin/dashboard" },
@@ -31,6 +43,7 @@ const reportMenus = [
     desc: "Statistik pertumbuhan, aktivitas, dan status member.",
     href: "/admin/reports/members",
     icon: Users,
+    badge: "Populer",
   },
   {
     title: "Laporan Kelas",
@@ -43,6 +56,7 @@ const reportMenus = [
     desc: "Rekap pemasukan dari membership dan kelas.",
     href: "/admin/reports/finance",
     icon: CreditCard,
+    badge: "Keuangan",
   },
   {
     title: "Laporan Personal Trainer",
@@ -63,7 +77,13 @@ export default function ReportsMenuPage() {
   const router = useRouter();
 
   return (
-    <main className="min-h-screen flex flex-col md:flex-row bg-gradient-to-br from-white to-blue-50">
+    <main
+      className="min-h-screen flex flex-col md:flex-row relative"
+      style={{
+        background:
+          `linear-gradient(135deg, ${colors.light}20 0%, #ffffff 35%, ${colors.base}20 100%)`,
+      }}
+    >
       <AdminMobileDrawer
         isOpen={isDrawerOpen}
         onClose={() => setDrawerOpen(false)}
@@ -73,51 +93,177 @@ export default function ReportsMenuPage() {
       <AdminSidebar navItems={navItems} />
 
       <div className="flex-1 p-4 md:p-8">
-        <motion.h1
-          initial={{ opacity: 0, y: 30 }}
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45 }}
-          className="text-3xl font-bold mb-10 text-gray-900"
+          className="mb-8"
         >
-          Menu Laporan
-        </motion.h1>
+          <div
+            className="rounded-2xl px-5 py-4 shadow-md border"
+            style={{
+              background: `linear-gradient(90deg, ${colors.darker} 0%, ${colors.dark} 100%)`,
+              color: colors.textLight,
+              borderColor: colors.light,
+            }}
+          >
+            <h1 className="text-2xl md:text-3xl font-extrabold">Menu Laporan</h1>
+            <p className="opacity-90 mt-1 text-sm md:text-base">
+              Pilih kategori laporan untuk melihat detail statistik & rekap.
+            </p>
+          </div>
+        </motion.div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+        {/* Grid menu cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
           {reportMenus.map((menu, i) => (
-            <motion.div
+            <motion.button
               key={menu.href}
-              initial={{ opacity: 0, y: 40 }}
+              type="button"
+              initial={{ opacity: 0, y: 36 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.08, type: "spring", stiffness: 90 }}
-              whileHover={{
-                scale: 1.045,
-                boxShadow: "0px 6px 28px 0px #90c9ee35",
-                backgroundColor: "#e9f5fc",
-              }}
+              transition={{ delay: i * 0.06, type: "spring", stiffness: 90, damping: 14 }}
+              whileHover={{ scale: 1.03 }}
               onClick={() => router.push(menu.href)}
-              tabIndex={0}
-              role="button"
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") router.push(menu.href);
               }}
-              className="group p-7 bg-white rounded-2xl shadow-lg border border-blue-100 cursor-pointer flex flex-col gap-4 outline-none focus:ring-2 focus:ring-blue-400 transition-all duration-200"
+              className="group text-left cursor-pointer outline-none focus-visible:ring-2 rounded-2xl"
+              style={{ focusRingColor: colors.base } as unknown as React.CSSProperties}
             >
-              <div className="flex items-center gap-4">
-                <span className="bg-blue-100 rounded-xl p-3">
-                  <menu.icon className="w-8 h-8 text-blue-600 group-hover:text-blue-800 transition" />
-                </span>
-                <span className="text-xl font-semibold text-blue-800">{menu.title}</span>
+              <div
+                className="p-6 rounded-2xl shadow-lg border transition-all duration-200 h-full flex flex-col gap-4"
+                style={{
+                  background: "#ffffff",
+                  borderColor: colors.light,
+                }}
+              >
+                <div className="flex items-center gap-4">
+                  <span
+                    className="rounded-xl p-3 shrink-0"
+                    style={{ background: `${colors.base}30` }}
+                  >
+                    <menu.icon
+                      className="w-8 h-8 transition-colors"
+                      style={{ color: colors.darker }}
+                    />
+                  </span>
+
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="text-lg md:text-xl font-semibold"
+                        style={{ color: colors.text }}
+                      >
+                        {menu.title}
+                      </span>
+                      {menu.badge && (
+                        <span
+                          className="text-[11px] px-2 py-0.5 rounded-full uppercase font-bold tracking-wide"
+                          style={{
+                            background: colors.accent,
+                            color: colors.textLight,
+                          }}
+                        >
+                          {menu.badge}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm mt-0.5" style={{ color: "#64748b" }}>
+                      {menu.desc}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-auto flex items-center justify-between">
+                  <div
+                    className="h-1 rounded-full w-2/3 transition-all"
+                    style={{
+                      background: `linear-gradient(90deg, ${colors.base}, ${colors.light})`,
+                    }}
+                  />
+                  <span
+                    className="inline-flex items-center gap-2 text-sm font-medium transition-all"
+                    style={{ color: colors.darker }}
+                  >
+                    Lihat Detail
+                    <svg
+                      className="w-5 h-5 transition-transform group-hover:translate-x-1"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </span>
+                </div>
               </div>
-              <span className="text-gray-500 mt-1">{menu.desc}</span>
-              <span className="mt-2 ml-auto flex items-center gap-2 text-blue-600 group-hover:gap-3 transition-all font-medium text-sm">
-                Lihat Detail
-                <svg className="w-5 h-5 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/>
-                </svg>
-              </span>
-            </motion.div>
+            </motion.button>
           ))}
         </div>
+
+        {/* Tabel contoh (consistency preview) */}
+        <div className="mt-10">
+          <div
+            className="rounded-t-2xl px-5 py-3 text-sm font-semibold"
+            style={{
+              background: `linear-gradient(90deg, ${colors.darker}, ${colors.dark})`,
+              color: colors.textLight,
+            }}
+          >
+            Ringkasan Singkat (Preview Style Tabel)
+          </div>
+          <div
+            className="overflow-x-auto rounded-b-2xl border bg-white shadow-sm"
+            style={{ borderColor: colors.light }}
+          >
+            <table className="w-full table-auto">
+              <thead style={{ background: `${colors.base}25` }}>
+                <tr>
+                  <th className="p-3 text-left text-sm" style={{ color: colors.text }}>
+                    Kategori
+                  </th>
+                  <th className="p-3 text-left text-sm" style={{ color: colors.text }}>
+                    Keterangan
+                  </th>
+                  <th className="p-3 text-left text-sm" style={{ color: colors.text }}>
+                    Aksi
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {reportMenus.map((m) => (
+                  <tr key={`row-${m.href}`} className="border-t" style={{ borderColor: colors.light }}>
+                    <td className="p-3 font-semibold" style={{ color: colors.darker }}>
+                      {m.title}
+                    </td>
+                    <td className="p-3 text-sm text-gray-600">{m.desc}</td>
+                    <td className="p-3">
+                      <button
+                        type="button"
+                        onClick={() => router.push(m.href)}
+                        className="px-3 py-1.5 rounded-lg text-white text-sm shadow-sm hover:shadow transition"
+                        style={{ background: colors.darker }}
+                      >
+                        Buka
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {reportMenus.length === 0 && (
+                  <tr>
+                    <td className="p-4 text-center text-gray-500" colSpan={3}>
+                      Belum ada data.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
       </div>
     </main>
   );

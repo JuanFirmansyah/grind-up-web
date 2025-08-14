@@ -2,14 +2,33 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc } from "firebase/firestore";
+import {
+  collection,
+  getDocs,
+  addDoc,
+  setDoc,
+  deleteDoc,
+  doc,
+} from "firebase/firestore";
 import { AdminSidebar } from "@/components/AdminSidebar";
 import { AdminMobileDrawer } from "@/components/AdminMobileDrawer";
 import { AdminTopbar } from "@/components/AdminTopbar";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pencil, Trash2, X } from "lucide-react";
+import { Plus, Pencil, Trash2, X, SortAsc, Search } from "lucide-react";
+
+/* ================== Color Palette (konsisten) ================== */
+const colors = {
+  base: "#97CCDD",
+  light: "#C1E3ED",
+  dark: "#6FB5CC",
+  darker: "#4A9EBB",
+  complementary: "#DDC497",
+  accent: "#DD97CC",
+  text: "#2D3748",
+  textLight: "#F8FAFC",
+};
 
 // Daftar fasilitas umum di gym (bisa diubah)
 const facilityList = [
@@ -27,13 +46,18 @@ export interface MembershipPackage {
   price: number;
   duration: string; // "Bulanan" | "Tahunan"
   description: string;
-  facilities: string[]; // array fasilitas
-  classAccess: { classId: string; className: string; sessionLimit: string }[]; // dynamic
+  facilities: string[];
+  classAccess: { classId: string; className: string; sessionLimit: string }[];
 }
+
+type SortMode = "name_asc" | "price_asc";
+type PackagePayload = Omit<MembershipPackage, "id">;
 
 export default function MembershipPackagesPage() {
   const [packages, setPackages] = useState<MembershipPackage[]>([]);
-  const [classes, setClasses] = useState<{ id: string; className: string }[]>([]);
+  const [classes, setClasses] = useState<{ id: string; className: string }[]>(
+    []
+  );
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editData, setEditData] = useState<MembershipPackage | null>(null);
@@ -43,15 +67,23 @@ export default function MembershipPackagesPage() {
     duration: "Bulanan",
     description: "",
     facilities: [] as string[],
-    classAccess: [] as { classId: string; className: string; sessionLimit: string }[],
+    classAccess: [] as {
+      classId: string;
+      className: string;
+      sessionLimit: string;
+    }[],
   });
   const [formError, setFormError] = useState("");
   const [isDrawerOpen, setDrawerOpen] = useState(false);
 
+  // enhancements
+  const [search, setSearch] = useState("");
+  const [sortMode, setSortMode] = useState<SortMode>("name_asc");
+
   // Fetch all class data
   useEffect(() => {
-    fetchPackages();
-    fetchClasses();
+    void fetchPackages();
+    void fetchClasses();
   }, []);
 
   const fetchPackages = async () => {
@@ -65,11 +97,11 @@ export default function MembershipPackagesPage() {
 
   const fetchClasses = async () => {
     const q = await getDocs(collection(db, "classes"));
-    const all = q.docs.map((doc) => ({
-      id: doc.id,
-      className: doc.data().type || "Tanpa Nama",
+    const all = q.docs.map((d) => ({
+      id: d.id,
+      className: (d.data().type as string) || "Tanpa Nama",
     }));
-    // Only unique type/className
+    // unique by className
     const unique: { id: string; className: string }[] = [];
     const seenType = new Set<string>();
     for (const c of all) {
@@ -80,7 +112,6 @@ export default function MembershipPackagesPage() {
     }
     setClasses(unique);
   };
-
 
   // Modal open (untuk edit/tambah)
   const openModal = (data?: MembershipPackage) => {
@@ -180,19 +211,25 @@ export default function MembershipPackagesPage() {
       setFormError("Nama dan harga wajib diisi!");
       return;
     }
-    if (isNaN(Number(form.price.replace(/\./g, "")))) {
+    if (Number.isNaN(Number(form.price.replace(/\./g, "")))) {
       setFormError("Harga harus berupa angka.");
       return;
     }
     try {
-      const payload = {
-        ...form,
+      const payload: PackagePayload = {
+        name: form.name,
         price: Number(form.price.replace(/\./g, "")),
+        duration: form.duration,
+        description: form.description,
         facilities: form.facilities,
         classAccess: form.classAccess,
       };
+
       if (editData?.id) {
-        await updateDoc(doc(db, "membership_packages", editData.id), payload);
+        // gunakan setDoc merge agar payload penuh aman untuk typing Firestore
+        await setDoc(doc(db, "membership_packages", editData.id), payload, {
+          merge: true,
+        });
       } else {
         await addDoc(collection(db, "membership_packages"), payload);
       }
@@ -204,13 +241,39 @@ export default function MembershipPackagesPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Yakin ingin menghapus paket ini?")) return;
+    // gunakan confirm tanpa eslint-disable directive
+    if (!window.confirm("Yakin ingin menghapus paket ini?")) return;
     await deleteDoc(doc(db, "membership_packages", id));
     await fetchPackages();
   };
 
+  /* ================== Filter & Sort ================== */
+  const filteredSorted = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    const base = packages.filter((p) => {
+      if (!term) return true;
+      return (
+        p.name.toLowerCase().includes(term) ||
+        (p.description || "").toLowerCase().includes(term)
+      );
+    });
+    const sorted = [...base].sort((a, b) => {
+      if (sortMode === "name_asc") {
+        return a.name.localeCompare(b.name, "id", { sensitivity: "base" });
+      }
+      // price_asc
+      return (a.price ?? 0) - (b.price ?? 0);
+    });
+    return sorted;
+  }, [packages, search, sortMode]);
+
   return (
-    <main className="min-h-screen flex flex-col md:flex-row bg-white relative">
+    <main
+      className="min-h-screen flex flex-col md:flex-row relative"
+      style={{
+        background: `linear-gradient(135deg, ${colors.light}20 0%, #ffffff 35%, ${colors.base}20 100%)`,
+      }}
+    >
       <AdminMobileDrawer
         isOpen={isDrawerOpen}
         onClose={() => setDrawerOpen(false)}
@@ -236,23 +299,89 @@ export default function MembershipPackagesPage() {
           { label: "Galeri", href: "/admin/gallery" },
         ]}
       />
-      <div className="flex-1 p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-3xl font-bold text-gray-800">Kelola Paket Membership</h1>
-          <button
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl shadow-md transition"
-            onClick={() => openModal()}
+
+      <div className="flex-1 p-6 md:p-8">
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45 }}
+          className="mb-6"
+        >
+          <div
+            className="rounded-2xl px-5 py-4 shadow-md border"
+            style={{
+              background: `linear-gradient(90deg, ${colors.darker} 0%, ${colors.dark} 100%)`,
+              color: colors.textLight,
+              borderColor: colors.light,
+            }}
           >
-            <Plus className="w-5 h-5" />
-            <span className="hidden sm:inline">Tambah Paket</span>
-          </button>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <h1 className="text-2xl md:text-3xl font-extrabold">
+                Kelola Paket Membership
+              </h1>
+              <button
+                type="button"
+                onClick={() => openModal()}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl shadow-md transition text-white"
+                style={{ background: colors.complementary }}
+              >
+                <Plus className="w-5 h-5" />
+                <span>Tambah Paket</span>
+              </button>
+            </div>
+            <p className="opacity-90 mt-1 text-sm md:text-base">
+              Paket-paket ini digunakan juga di aplikasi customer — pastikan
+              informatif & jelas.
+            </p>
+          </div>
+        </motion.div>
+
+        {/* Controls */}
+        <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between mb-4">
+          <div className="flex items-center gap-2 w-full md:max-w-md">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Cari paket (nama / deskripsi)"
+                className="w-full pl-9 pr-3 py-2 rounded-xl border shadow-sm focus:outline-none"
+                style={{ borderColor: colors.light }}
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <SortAsc className="w-4 h-4 text-gray-500" />
+            <select
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value as SortMode)}
+              className="border rounded-xl px-3 py-2"
+              style={{ borderColor: colors.light }}
+            >
+              <option value="name_asc">Urut Nama (A → Z)</option>
+              <option value="price_asc">Harga (Termurah dulu)</option>
+            </select>
+          </div>
         </div>
-        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+
+        {/* Table */}
+        <div
+          className="overflow-x-auto rounded-2xl border bg-white shadow-sm"
+          style={{ borderColor: colors.light }}
+        >
           <table className="w-full table-auto">
-            <thead className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
+            <thead
+              style={{
+                background: `linear-gradient(90deg, ${colors.darker}, ${colors.dark})`,
+                color: colors.textLight,
+              }}
+            >
               <tr>
                 <th className="p-4 text-left">Nama Paket</th>
                 <th className="p-4 text-left">Harga</th>
+                <th className="p-4 text-left">Durasi</th>
                 <th className="p-4 text-left">Fasilitas</th>
                 <th className="p-4 text-left">Akses Kelas</th>
                 <th className="p-4 text-left">Deskripsi</th>
@@ -260,65 +389,122 @@ export default function MembershipPackagesPage() {
               </tr>
             </thead>
             <tbody>
-              {loading
-                ? Array.from({ length: 3 }).map((_, i) => (
-                    <tr key={i}>
-                      {Array.from({ length: 6 }).map((_, j) => (
-                        <td key={j} className="p-4">
-                          <div className="h-5 bg-gray-200 rounded animate-pulse"></div>
-                        </td>
-                      ))}
-                    </tr>
-                  ))
-                : packages.map((pkg) => (
-                    <motion.tr
-                      key={pkg.id}
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.25 }}
-                      className="border-b hover:bg-gray-50"
-                    >
-                      <td className="p-4 font-semibold text-gray-800">{pkg.name}</td>
-                      <td className="p-4 text-gray-700">Rp {Number(pkg.price).toLocaleString()}</td>
-                      <td className="p-4 text-gray-700">
-                        {pkg.facilities?.length ? (
-                          <ul className="list-disc ml-4">
-                            {pkg.facilities.map((f, idx) => (
-                              <li key={idx}>{f}</li>
-                            ))}
-                          </ul>
-                        ) : "-"}
+              {loading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={`sk-${i}`}>
+                    {Array.from({ length: 7 }).map((__, j) => (
+                      <td key={`sk-${i}-${j}`} className="p-4">
+                        <div className="h-5 bg-gray-200 rounded animate-pulse" />
                       </td>
-                      <td className="p-4 text-gray-700">
-                        {pkg.classAccess?.length ? (
-                          <ul className="list-disc ml-4">
-                            {pkg.classAccess.map((c, idx) => (
-                              <li key={idx}>
-                                {c.className} ({c.sessionLimit || "∞"} sesi)
-                              </li>
-                            ))}
-                          </ul>
-                        ) : "-"}
-                      </td>
-                      <td className="p-4 text-gray-700">{pkg.description}</td>
-                      <td className="p-4 flex gap-2">
+                    ))}
+                  </tr>
+                ))
+              ) : filteredSorted.length ? (
+                filteredSorted.map((pkg, idx) => (
+                  <motion.tr
+                    key={pkg.id ?? `pkg-${idx}`}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.25 }}
+                    className="border-t hover:bg-gray-50"
+                    style={{ borderColor: colors.light }}
+                  >
+                    <td className="p-4 font-semibold" style={{ color: colors.text }}>
+                      {pkg.name}
+                    </td>
+
+                    <td className="p-4 text-gray-700">
+                      Rp {Number(pkg.price ?? 0).toLocaleString("id-ID")}
+                    </td>
+
+                    <td className="p-4">
+                      <span
+                        className="px-2 py-1 text-xs font-bold rounded-lg"
+                        style={{
+                          background:
+                            pkg.duration === "Tahunan" ? `${colors.accent}` : `${colors.base}`,
+                          color: colors.textLight,
+                        }}
+                      >
+                        {pkg.duration}
+                      </span>
+                    </td>
+
+                    <td className="p-4 text-gray-700">
+                      {pkg.facilities?.length ? (
+                        <div className="flex flex-wrap gap-2">
+                          {pkg.facilities.map((f) => (
+                            <span
+                              key={f}
+                              className="px-2 py-0.5 text-xs rounded-full"
+                              style={{
+                                background: `${colors.base}25`,
+                                color: colors.darker,
+                              }}
+                            >
+                              {f}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400 italic">-</span>
+                      )}
+                    </td>
+
+                    <td className="p-4 text-gray-700">
+                      {pkg.classAccess?.length ? (
+                        <ul className="list-disc ml-4">
+                          {pkg.classAccess.map((c) => (
+                            <li key={`${c.classId}`}>
+                              {c.className} ({c.sessionLimit || "∞"} sesi)
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <span className="text-gray-400 italic">-</span>
+                      )}
+                      <div className="text-xs text-gray-500 mt-1">
+                        Total kelas: {pkg.classAccess?.length ?? 0}
+                      </div>
+                    </td>
+
+                    <td className="p-4 text-gray-700">
+                      {pkg.description || <span className="text-gray-400 italic">-</span>}
+                    </td>
+
+                    <td className="p-4">
+                      <div className="flex flex-wrap gap-2">
                         <button
-                          className="p-2 bg-yellow-400 text-white rounded-full hover:scale-110 transition"
+                          type="button"
                           onClick={() => openModal(pkg)}
+                          className="p-2 rounded-full text-white hover:scale-110 transition"
+                          style={{ background: colors.complementary }}
                           aria-label="Edit"
+                          title="Edit paket"
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
                         <button
-                          className="p-2 bg-red-500 text-white rounded-full hover:scale-110 transition"
-                          onClick={() => pkg.id && handleDelete(pkg.id)}
-                          aria-label="Delete"
+                          type="button"
+                          onClick={() => pkg.id && void handleDelete(pkg.id)}
+                          className="p-2 rounded-full text-white hover:scale-110 transition"
+                          style={{ background: "#ef4444" }}
+                          aria-label="Hapus"
+                          title="Hapus paket"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
-                      </td>
-                    </motion.tr>
-                  ))}
+                      </div>
+                    </td>
+                  </motion.tr>
+                ))
+              ) : (
+                <tr>
+                  <td className="p-6 text-center text-gray-500" colSpan={7}>
+                    Tidak ada paket yang cocok dengan pencarian.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -332,7 +518,7 @@ export default function MembershipPackagesPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center"
+            className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center px-4"
             onClick={closeModal}
           >
             <motion.div
@@ -340,32 +526,43 @@ export default function MembershipPackagesPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.97, opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className="relative bg-white p-8 rounded-2xl shadow-xl w-full max-w-2xl"
-              onClick={e => e.stopPropagation()}
+              className="relative bg-white p-6 md:p-8 rounded-2xl shadow-xl w-full max-w-2xl"
+              onClick={(e) => e.stopPropagation()}
             >
               <button
+                type="button"
                 onClick={closeModal}
                 className="absolute top-3 right-3 text-gray-400 hover:text-black"
+                aria-label="Tutup"
+                title="Tutup"
               >
                 <X className="w-5 h-5" />
               </button>
-              <h2 className="text-xl font-bold mb-4">
+
+              <h2 className="text-xl font-bold mb-4" style={{ color: colors.text }}>
                 {editData ? "Edit Paket Membership" : "Tambah Paket Membership"}
               </h2>
+
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block mb-1 font-semibold text-gray-700">Nama Paket</label>
+                  <label className="block mb-1 font-semibold" style={{ color: colors.text }}>
+                    Nama Paket
+                  </label>
                   <input
                     type="text"
                     name="name"
                     value={form.name}
-                    onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))}
+                    onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
                     required
-                    className="w-full border px-4 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border px-4 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2"
+                    style={{ borderColor: colors.light }}
                   />
                 </div>
+
                 <div>
-                  <label className="block mb-1 font-semibold text-gray-700">Harga Paket (Rp)</label>
+                  <label className="block mb-1 font-semibold" style={{ color: colors.text }}>
+                    Harga Paket (Rp)
+                  </label>
                   <input
                     type="text"
                     name="price"
@@ -373,52 +570,72 @@ export default function MembershipPackagesPage() {
                     onChange={handlePriceChange}
                     required
                     min={0}
-                    className="w-full border px-4 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border px-4 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2"
+                    style={{ borderColor: colors.light }}
                     placeholder="Contoh: 250000"
                     inputMode="numeric"
                   />
+                  <div className="text-xs text-gray-500 mt-1">
+                    Tampil sebagai: Rp{" "}
+                    {form.price ? Number(form.price.replace(/\./g, "")).toLocaleString("id-ID") : "0"}
+                  </div>
                 </div>
+
                 <div>
-                  <label className="block mb-1 font-semibold text-gray-700">Durasi</label>
+                  <label className="block mb-1 font-semibold" style={{ color: colors.text }}>
+                    Durasi
+                  </label>
                   <select
                     name="duration"
                     value={form.duration}
-                    onChange={e => setForm(prev => ({ ...prev, duration: e.target.value }))}
-                    className="w-full border px-4 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onChange={(e) => setForm((prev) => ({ ...prev, duration: e.target.value }))}
+                    className="w-full border px-4 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2"
+                    style={{ borderColor: colors.light }}
                   >
                     <option value="Bulanan">Bulanan</option>
                     <option value="Tahunan">Tahunan</option>
                   </select>
                 </div>
+
                 <div>
-                  <label className="block mb-1 font-semibold text-gray-700">Fasilitas</label>
+                  <label className="block mb-1 font-semibold" style={{ color: colors.text }}>
+                    Fasilitas
+                  </label>
                   <div className="flex flex-wrap gap-2">
-                    {facilityList.map(facility => (
-                      <label key={facility} className="flex items-center gap-1 px-3 py-1 rounded border bg-gray-50 shadow-sm cursor-pointer">
+                    {facilityList.map((facility) => (
+                      <label
+                        key={facility}
+                        className="flex items-center gap-2 px-3 py-1 rounded border bg-gray-50 shadow-sm cursor-pointer"
+                        style={{ borderColor: colors.light }}
+                      >
                         <input
                           type="checkbox"
                           checked={form.facilities.includes(facility)}
                           onChange={() => toggleFacility(facility)}
-                          className="accent-blue-500"
+                          className="accent-blue-600"
                         />
                         <span>{facility}</span>
                       </label>
                     ))}
                   </div>
                 </div>
+
                 <div>
-                  <label className="block mb-1 font-semibold text-gray-700">Akses Kelas & Sesi</label>
+                  <label className="block mb-1 font-semibold" style={{ color: colors.text }}>
+                    Akses Kelas & Sesi
+                  </label>
                   <div className="space-y-1">
-                    {classes.map(cls => {
-                      const checked = form.classAccess.some(c => c.classId === cls.id);
-                      const sessionLimit = form.classAccess.find(c => c.classId === cls.id)?.sessionLimit || "";
+                    {classes.map((cls) => {
+                      const checked = form.classAccess.some((c) => c.classId === cls.id);
+                      const sessionLimit =
+                        form.classAccess.find((c) => c.classId === cls.id)?.sessionLimit || "";
                       return (
                         <div key={cls.id} className="flex items-center gap-3">
                           <label className="flex items-center gap-2">
                             <input
                               type="checkbox"
                               checked={checked}
-                              onChange={e => handleClassAccessChange(cls.id, e.target.checked)}
+                              onChange={(e) => handleClassAccessChange(cls.id, e.target.checked)}
                               className="accent-green-600"
                             />
                             <span>{cls.className}</span>
@@ -427,34 +644,42 @@ export default function MembershipPackagesPage() {
                             <input
                               type="number"
                               min={1}
-                              placeholder="Jml sesi/bulan (atau kosong = unlimited)"
+                              placeholder="Jml sesi/bulan (kosong = unlimited)"
                               value={sessionLimit}
-                              onChange={e => handleSessionLimitChange(cls.id, e.target.value)}
-                              className="border px-2 py-1 rounded w-44 ml-2"
+                              onChange={(e) => handleSessionLimitChange(cls.id, e.target.value)}
+                              className="border px-2 py-1 rounded w-52"
+                              style={{ borderColor: colors.light }}
                             />
                           )}
                         </div>
                       );
                     })}
                   </div>
-                  <div className="text-xs text-gray-500 mt-1">* Centang kelas lalu isi jumlah sesi/bulan. Kosongkan sesi untuk unlimited.</div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    * Centang kelas lalu isi jumlah sesi/bulan. Kosongkan sesi untuk unlimited.
+                  </div>
                 </div>
+
                 <div>
-                  <label className="block mb-1 font-semibold text-gray-700">Deskripsi Paket</label>
+                  <label className="block mb-1 font-semibold" style={{ color: colors.text }}>
+                    Deskripsi Paket
+                  </label>
                   <textarea
                     name="description"
                     value={form.description}
-                    onChange={e => setForm(prev => ({ ...prev, description: e.target.value }))}
-                    rows={2}
-                    className="w-full border px-4 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
+                    rows={3}
+                    className="w-full border px-4 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2"
+                    style={{ borderColor: colors.light }}
                   />
                 </div>
-                {formError && (
-                  <div className="text-red-500 text-xs">{formError}</div>
-                )}
+
+                {formError && <div className="text-red-500 text-xs">{formError}</div>}
+
                 <button
                   type="submit"
-                  className="w-full bg-blue-600 text-white py-3 rounded-lg shadow hover:bg-blue-700 transition font-bold"
+                  className="w-full text-white py-3 rounded-lg shadow font-bold hover:opacity-95 transition"
+                  style={{ background: colors.darker }}
                 >
                   {editData ? "Simpan Perubahan" : "Simpan Paket"}
                 </button>

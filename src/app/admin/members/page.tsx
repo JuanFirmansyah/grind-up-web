@@ -1,6 +1,7 @@
+// src/app/admin/members/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import { db, storage } from "@/lib/firebase";
@@ -11,6 +12,7 @@ import {
   doc,
   addDoc,
   Timestamp,
+  type DocumentData,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { AdminSidebar } from "@/components/AdminSidebar";
@@ -26,12 +28,30 @@ import {
   DollarSign,
   Eye,
   UploadCloud,
+  SortAsc,
+  TimerReset,
+  FileText,
+  Download,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import dynamic from "next/dynamic";
+import { toPng } from "html-to-image";
+import jsPDF from "jspdf";
 
 const QRCode = dynamic(() => import("react-qr-code"), { ssr: false });
+
+/* ================== Color Palette ================== */
+const colors = {
+  base: "#97CCDD",
+  light: "#C1E3ED",
+  dark: "#6FB5CC",
+  darker: "#4A9EBB",
+  complementary: "#DDC497",
+  accent: "#DD97CC",
+  text: "#2D3748",
+  textLight: "#F8FAFC",
+};
 
 /* ============ Date helpers (tanpa any) ============ */
 type DateLike =
@@ -91,7 +111,6 @@ interface Member {
   deleted?: boolean;
   photoURL?: string | null;
   qrData?: string | null;
-  /** standarisasi */
   expiresAt?: DateLike;
   memberType?: string; // id paket
 }
@@ -108,15 +127,17 @@ interface UserRaw {
   deleted?: boolean;
   photoURL?: string | null;
   qrData?: string | null;
-  /** data lama/baru (fallback saat baca) */
   expiresAt?: DateLike;
-  expiredAt?: DateLike;
+  expiredAt?: DateLike; // fallback lama
   memberType?: string;
 }
 
-interface MembershipPackageDoc { name?: string }
-interface PackageMap { [key: string]: string }
+interface MembershipPackageDoc {
+  name?: string;
+}
+type PackageMap = Record<string, string>;
 
+/* ================== Component ================== */
 export default function AdminMembersPage() {
   const [loading, setLoading] = useState(true);
   const [members, setMembers] = useState<Member[]>([]);
@@ -129,6 +150,8 @@ export default function AdminMembersPage() {
   const [qrMemberName, setQrMemberName] = useState<string>("");
   const [currentPage, setCurrentPage] = useState(1);
   const [packageMap, setPackageMap] = useState<PackageMap>({});
+  const [sortMode, setSortMode] = useState<"name_asc" | "expiry_asc">("name_asc");
+  const [onlyExpiringSoon, setOnlyExpiringSoon] = useState(false);
   const pageSize = 10;
 
   // State pembayaran
@@ -140,9 +163,15 @@ export default function AdminMembersPage() {
   const [payFile, setPayFile] = useState<File | null>(null);
   const [payFilePreview, setPayFilePreview] = useState<string | null>(null);
   const [payFileError, setPayFileError] = useState<string>("");
+  const [payNotes, setPayNotes] = useState<string>("");
+
+  // Refs for QR export
+  const qrCardRef = useRef<HTMLDivElement | null>(null);
+  const [qrDownloading, setQrDownloading] = useState(false);
 
   const router = useRouter();
 
+  /* ========== Fetch package map ========== */
   useEffect(() => {
     const fetchPackages = async () => {
       const q = await getDocs(collection(db, "membership_packages"));
@@ -153,9 +182,10 @@ export default function AdminMembersPage() {
       });
       setPackageMap(map);
     };
-    fetchPackages();
+    fetchPackages().catch(() => undefined);
   }, []);
 
+  /* ========== Fetch members ========== */
   useEffect(() => {
     const fetchMembers = async () => {
       setLoading(true);
@@ -176,56 +206,18 @@ export default function AdminMembersPage() {
           deleted: d.deleted || false,
           photoURL: d.photoURL ?? null,
           qrData: d.qrData ?? null,
-          /** baca standar: expiresAt || expiredAt (untuk data lama) */
-          expiresAt: d.expiresAt ?? d.expiredAt ?? null,
+          expiresAt: d.expiresAt ?? d.expiredAt ?? null, // standar baca
           memberType: d.memberType ?? "",
         });
       });
       setMembers(data);
       setLoading(false);
     };
-    fetchMembers();
+    fetchMembers().catch(() => setLoading(false));
   }, []);
 
-  const handleDelete = async (id: string) => {
-    await updateDoc(doc(db, "users", id), { deleted: true });
-    setMembers((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, deleted: true } : m))
-    );
-  };
-
-  const handleRestore = async (id: string) => {
-    await updateDoc(doc(db, "users", id), { deleted: false });
-    setMembers((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, deleted: false } : m))
-    );
-  };
-
-  const filteredMembers = members.filter((m) => {
-    const term = searchTerm.toLowerCase();
-    const matchesSearch =
-      (m.name || "").toLowerCase().includes(term) ||
-      (m.email || "").toLowerCase().includes(term) ||
-      (m.phone || "").toLowerCase().includes(term);
-    const matchesStatus = statusFilter ? m.status === statusFilter : true;
-    const matchesDeleted = showDeleted ? m.deleted : !m.deleted;
-    return matchesSearch && matchesStatus && matchesDeleted;
-  });
-
-  const totalPages = Math.ceil(filteredMembers.length / pageSize);
-  const paginatedMembers = filteredMembers.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
-  );
-
-  // Tombol QR
-  const openQRModal = (value: string, memberName: string) => {
-    setQrValue(value);
-    setQrMemberName(memberName);
-  };
-
-  // Helper: apakah member visit
-  function isVisitType(member: Member) {
+  /* ========== Helpers ========== */
+  function isVisitType(member: Member): boolean {
     const label =
       (member.memberType && packageMap[member.memberType]?.toLowerCase()) ||
       member.memberType?.toLowerCase() ||
@@ -233,12 +225,113 @@ export default function AdminMembersPage() {
     return label.includes("visit");
   }
 
-  function formatRupiah(angka: string) {
+  function formatRupiah(angka: string): string {
     if (!angka) return "";
     return angka.replace(/\D/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   }
 
-  // --- Modal Pembayaran ---
+  /* ========== CRUD soft delete/restore ========== */
+  const handleDelete = async (id: string) => {
+    await updateDoc(doc(db, "users", id), { deleted: true });
+    setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, deleted: true } : m)));
+  };
+
+  const handleRestore = async (id: string) => {
+    await updateDoc(doc(db, "users", id), { deleted: false });
+    setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, deleted: false } : m)));
+  };
+
+  /* ========== Filters & Sorting ========== */
+  const filteredSortedMembers = useMemo(() => {
+    const term = searchTerm.toLowerCase();
+    const now = new Date();
+
+    const base = members.filter((m) => {
+      const matchesSearch =
+        (m.name || "").toLowerCase().includes(term) ||
+        (m.email || "").toLowerCase().includes(term) ||
+        (m.phone || "").toLowerCase().includes(term);
+      const matchesStatus = statusFilter ? m.status === statusFilter : true;
+      const matchesDeleted = showDeleted ? m.deleted : !m.deleted;
+
+      const exp = toJSDate(m.expiresAt);
+      const expiringSoon = exp ? Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) <= 7 : false;
+      const matchesSoon = onlyExpiringSoon ? expiringSoon : true;
+
+      return matchesSearch && matchesStatus && matchesDeleted && matchesSoon;
+    });
+
+    const sorted = [...base].sort((a, b) => {
+      if (sortMode === "name_asc") {
+        return (a.name || "").localeCompare(b.name || "", "id", { sensitivity: "base" });
+      }
+      // expiry_asc
+      const ad = toJSDate(a.expiresAt)?.getTime() ?? Number.POSITIVE_INFINITY;
+      const bd = toJSDate(b.expiresAt)?.getTime() ?? Number.POSITIVE_INFINITY;
+      return ad - bd;
+    });
+
+    return sorted;
+  }, [members, searchTerm, statusFilter, showDeleted, sortMode, onlyExpiringSoon]);
+
+  const totalPages = Math.ceil(filteredSortedMembers.length / pageSize);
+  const paginatedMembers = filteredSortedMembers.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  /* ========== QR Modal handlers ========== */
+  const openQRModal = (value: string, memberName: string) => {
+    setQrValue(value);
+    setQrMemberName(memberName);
+  };
+
+  const handleDownloadQRPNG = async (): Promise<void> => {
+    if (!qrCardRef.current) return;
+    setQrDownloading(true);
+    try {
+      const dataUrl = await toPng(qrCardRef.current, {
+        pixelRatio: 3,
+        cacheBust: true,
+        backgroundColor: "#ffffff",
+      });
+      const link = document.createElement("a");
+      link.download = `${qrMemberName.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "member"}-qr.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch {
+      // noop
+    } finally {
+      setQrDownloading(false);
+    }
+  };
+
+  const handleDownloadQRPDF = async (): Promise<void> => {
+    if (!qrCardRef.current) return;
+    setQrDownloading(true);
+    try {
+      const el = qrCardRef.current;
+      const w = el.offsetWidth || 360;
+      const h = el.offsetHeight || 420;
+
+      const dataUrl = await toPng(el, {
+        pixelRatio: 3,
+        cacheBust: true,
+        backgroundColor: "#ffffff",
+      });
+
+      const pdf = new jsPDF({
+        orientation: h >= w ? "portrait" : "landscape",
+        unit: "px",
+        format: [w, h],
+      });
+      pdf.addImage(dataUrl, "PNG", 0, 0, w, h);
+      pdf.save(`${qrMemberName.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "member"}-qr.pdf`);
+    } catch {
+      // noop
+    } finally {
+      setQrDownloading(false);
+    }
+  };
+
+  /* ========== Modal Pembayaran ========== */
   const openPayModal = (member: Member) => {
     setSelectedMember(member);
     setShowPayModal(true);
@@ -247,6 +340,7 @@ export default function AdminMembersPage() {
     setPayFile(null);
     setPayFilePreview(null);
     setPayFileError("");
+    setPayNotes("");
   };
 
   const closePayModal = () => {
@@ -257,6 +351,7 @@ export default function AdminMembersPage() {
     setPayFile(null);
     setPayFilePreview(null);
     setPayFileError("");
+    setPayNotes("");
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -285,6 +380,7 @@ export default function AdminMembersPage() {
     }
     setPayLoading(true);
     try {
+      // Hitung expiry baru
       let newExpiry: Date;
       if (isVisitType(selectedMember)) {
         newExpiry = new Date();
@@ -304,31 +400,42 @@ export default function AdminMembersPage() {
       await uploadBytes(fileRef, payFile);
       const fileURL = await getDownloadURL(fileRef);
 
-      // TULIS field standar: expiresAt (Timestamp)
+      // Update user expiry
       const ts = Timestamp.fromDate(newExpiry);
       await updateDoc(doc(db, "users", selectedMember.id), {
         expiresAt: ts,
         status: "aktif",
       });
 
-      await addDoc(collection(db, "payments"), {
+      // Siapkan data pembayaran (field mapping BARU)
+      const priceNumber = Number(payNominal.replace(/\./g, "")) || 0;
+      const created = Timestamp.now();
+
+      const paymentDoc: DocumentData = {
         userId: selectedMember.id,
         name: selectedMember.name,
-        payMonth: isVisitType(selectedMember) ? 0 : payMonth,
-        nominal: Number(payNominal.replace(/\./g, "")) || 0,
-        paidAt: Timestamp.now(),
-        expiresAt: ts,
-        admin: "admin",
+        price: priceNumber,
+        months: isVisitType(selectedMember) ? 0 : payMonth,
+        created, // pengganti paidAt
+        updatedAt: created,
+        approvedAt: null, // di-approve nanti
+        approvedBy: "",
+        proofUrl: fileURL, // pengganti imageUrl
         method: "manual",
         status: "success",
-        imageURL: fileURL,
-      });
+        expiresAt: ts,
+        packageId: selectedMember.memberType ?? "",
+        packageName: selectedMember.memberType && packageMap[selectedMember.memberType] ? packageMap[selectedMember.memberType] : "",
+        notes: payNotes || "",
+        admin: "admin",
+      };
 
+      await addDoc(collection(db, "payments"), paymentDoc);
+
+      // Sync state
       setMembers((prev) =>
         prev.map((m) =>
-          m.id === selectedMember.id
-            ? { ...m, expiresAt: ts, status: "aktif" }
-            : m
+          m.id === selectedMember.id ? { ...m, expiresAt: ts, status: "aktif" } : m
         )
       );
 
@@ -368,74 +475,119 @@ export default function AdminMembersPage() {
           { label: "Galeri", href: "/admin/gallery" },
         ]}
       />
+
       <div className="flex-1 p-6">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-800">Manajemen Member</h1>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
+          <h1 className="text-3xl font-extrabold" style={{ color: colors.text }}>Manajemen Member</h1>
           <button
             onClick={() => router.push("/admin/members/form")}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl shadow-md transition"
+            className="flex items-center gap-2 px-5 py-3 rounded-xl shadow-md transition text-white"
+            style={{ background: colors.darker }}
           >
             <Plus className="w-5 h-5" />
             <span className="hidden sm:inline">Tambah Member</span>
           </button>
         </div>
 
-        <div className="flex flex-wrap gap-3 mb-6 items-center">
-          <input
-            type="text"
-            placeholder="Cari nama, email, atau nomor telepon"
-            className="input input-bordered w-full md:w-1/3"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          <select
-            className="select select-bordered w-full md:w-1/4"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="">Semua Status</option>
-            <option value="aktif">Aktif</option>
-            <option value="non-aktif">Tidak Aktif</option>
-          </select>
-          <label className="flex items-center gap-2 text-gray-600">
+        {/* Filters */}
+        <div className="flex flex-col lg:flex-row lg:items-end gap-3 mb-6">
+          <div className="flex-1 flex flex-col sm:flex-row gap-3">
+            <input
+              type="text"
+              placeholder="Cari nama, email, atau nomor telepon"
+              className="w-full sm:flex-1 border rounded-xl px-4 py-2"
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+            />
+            <select
+              className="w-full sm:w-52 border rounded-xl px-4 py-2"
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+            >
+              <option value="">Semua Status</option>
+              <option value="aktif">Aktif</option>
+              <option value="non-aktif">Tidak Aktif</option>
+            </select>
+
+            <select
+              className="w-full sm:w-56 border rounded-xl px-4 py-2"
+              value={sortMode}
+              onChange={(e) => {
+                setSortMode(e.target.value as "name_asc" | "expiry_asc");
+                setCurrentPage(1);
+              }}
+            >
+              <option value="name_asc">Urut Nama (A → Z)</option>
+              <option value="expiry_asc">Expired Paling Cepat</option>
+            </select>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={onlyExpiringSoon}
+              onChange={() => {
+                setOnlyExpiringSoon((v) => !v);
+                setCurrentPage(1);
+              }}
+            />
+            <span className="inline-flex items-center gap-1">
+              <TimerReset className="w-4 h-4" />
+              Tampilkan yang segera expired (≤ 7 hari)
+            </span>
+          </label>
+
+          <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
               checked={showDeleted}
-              onChange={() => setShowDeleted(!showDeleted)}
+              onChange={() => {
+                setShowDeleted(!showDeleted);
+                setCurrentPage(1);
+              }}
             />
             Tampilkan yang dihapus
           </label>
         </div>
 
-        {/* pagination controls */}
-        <div className="flex justify-between items-center mt-4">
+        {/* pagination summary */}
+        <div className="flex justify-between items-center mt-2">
           <p className="text-sm text-gray-600">
-            Menampilkan {paginatedMembers.length} dari {filteredMembers.length} member
+            Menampilkan {paginatedMembers.length} dari {filteredSortedMembers.length} member
           </p>
           <div className="flex gap-2">
             <button
               onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
               disabled={currentPage === 1}
-              className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-50"
+              className="px-3 py-1 rounded border disabled:opacity-50"
+              style={{ borderColor: colors.light }}
             >
               Sebelumnya
             </button>
-            <span className="text-sm text-gray-700">
-              Halaman {currentPage} dari {totalPages}
+            <span className="text-sm text-gray-700 inline-flex items-center gap-1">
+              <SortAsc className="w-4 h-4" /> Halaman {currentPage} / {totalPages || 1}
             </span>
             <button
-              onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
-              disabled={currentPage === totalPages}
-              className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-50"
+              onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages || 1))}
+              disabled={currentPage === totalPages || totalPages === 0}
+              className="px-3 py-1 rounded border disabled:opacity-50"
+              style={{ borderColor: colors.light }}
             >
               Selanjutnya
             </button>
           </div>
         </div>
 
-        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm mt-4">
+        {/* table */}
+        <div className="overflow-x-auto rounded-xl border bg-white shadow-sm mt-4" style={{ borderColor: colors.light }}>
           <table className="w-full table-auto">
-            <thead className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
+            <thead style={{ background: `linear-gradient(90deg, ${colors.darker}, ${colors.dark})`, color: colors.textLight }}>
               <tr>
                 <th className="p-4 text-left">Nama</th>
                 <th className="p-4 text-left">Nomor HP</th>
@@ -452,10 +604,10 @@ export default function AdminMembersPage() {
             <tbody>
               {loading ? (
                 Array.from({ length: 8 }).map((_, i) => (
-                  <tr key={i}>
-                    {Array.from({ length: 9 }).map((_, j) => (
-                      <td key={j} className="p-4">
-                        <div className="h-5 bg-gray-200 rounded animate-pulse"></div>
+                  <tr key={`skeleton-${i}`}>
+                    {Array.from({ length: 10 }).map((_, j) => (
+                      <td key={`sk-${i}-${j}`} className="p-4">
+                        <div className="h-5 bg-gray-200 rounded animate-pulse" />
                       </td>
                     ))}
                   </tr>
@@ -468,20 +620,22 @@ export default function AdminMembersPage() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.03, duration: 0.4, ease: "easeOut" }}
                     className={`border-b hover:bg-gray-50 ${member.deleted ? "opacity-50" : ""}`}
+                    style={{ borderColor: colors.light }}
                   >
-                    <td className="p-4 font-semibold text-gray-800">{member.name}</td>
+                    <td className="p-4 font-semibold" style={{ color: colors.text }}>{member.name}</td>
                     <td className="p-4 text-gray-700">{member.phone || "-"}</td>
                     <td className="p-4 text-gray-700">{member.email}</td>
-                    <td className="p-4 text-blue-800 font-semibold">
-                      {member.memberType && packageMap[member.memberType]
-                        ? packageMap[member.memberType]
-                        : <span className="text-gray-400 italic">Belum dipilih</span>}
+                    <td className="p-4 font-semibold" style={{ color: colors.darker }}>
+                      {member.memberType && packageMap[member.memberType] ? (
+                        packageMap[member.memberType]
+                      ) : (
+                        <span className="text-gray-400 italic">Belum dipilih</span>
+                      )}
                     </td>
-                    <td className={`p-4 font-medium capitalize ${member.status === "aktif" ? "text-green-600" : "text-red-500"}`}>{member.status}</td>
-
-                    {/* tanggal kebal tipe */}
+                    <td className={`p-4 font-medium capitalize ${member.status === "aktif" ? "text-green-600" : "text-red-500"}`}>
+                      {member.status}
+                    </td>
                     <td className="p-4 text-sm">{formatDate(member.lastLogin)}</td>
-
                     <td className="p-4">{member.isVerified ? "✅" : "❌"}</td>
                     <td className="p-4">
                       {member.photoURL ? (
@@ -490,28 +644,27 @@ export default function AdminMembersPage() {
                           alt={member.name}
                           width={40}
                           height={40}
-                          onClick={() => setModalImage(member.photoURL!)}
+                          onClick={() => setModalImage(member.photoURL as string)}
                           className="w-10 h-10 rounded-full object-cover cursor-pointer hover:scale-110 transition-transform duration-200"
                         />
                       ) : (
                         <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-sm text-gray-500">?</div>
                       )}
                     </td>
-
-                    {/* kolom expired (standar: expiresAt) */}
                     <td className="p-4 text-sm">{formatDate(member.expiresAt)}</td>
-
-                    <td className="p-4 flex gap-2">
+                    <td className="p-4 flex flex-wrap gap-2">
                       <button
                         onClick={() => router.push(`/member/${member.id}`)}
-                        className="p-2 bg-blue-500 text-white rounded-full hover:scale-110 transition"
+                        className="p-2 rounded-full text-white hover:scale-110 transition"
+                        style={{ background: colors.darker }}
                         aria-label="Detail"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => router.push(`/admin/members/form?id=${member.id}`)}
-                        className="p-2 bg-yellow-400 text-white rounded-full hover:scale-110 transition"
+                        className="p-2 rounded-full text-white hover:scale-110 transition"
+                        style={{ background: colors.complementary }}
                         aria-label="Edit"
                       >
                         <Pencil className="w-4 h-4" />
@@ -520,14 +673,16 @@ export default function AdminMembersPage() {
                         <>
                           <button
                             onClick={() => handleDelete(member.id)}
-                            className="p-2 bg-red-500 text-white rounded-full hover:scale-110 transition"
+                            className="p-2 rounded-full text-white hover:scale-110 transition"
+                            style={{ background: "#ef4444" }}
                             aria-label="Delete"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => openPayModal(member)}
-                            className="p-2 bg-green-600 text-white rounded-full hover:scale-110 transition"
+                            className="p-2 rounded-full text-white hover:scale-110 transition"
+                            style={{ background: "#16a34a" }}
                             aria-label="Bayar/Perpanjang"
                           >
                             <DollarSign className="w-4 h-4" />
@@ -536,7 +691,8 @@ export default function AdminMembersPage() {
                       ) : (
                         <button
                           onClick={() => handleRestore(member.id)}
-                          className="p-2 bg-gray-400 text-white rounded-full hover:scale-110 transition"
+                          className="p-2 rounded-full text-white hover:scale-110 transition"
+                          style={{ background: "#9ca3af" }}
                           aria-label="Restore"
                         >
                           <RotateCcw className="w-4 h-4" />
@@ -544,8 +700,9 @@ export default function AdminMembersPage() {
                       )}
                       {member.qrData && (
                         <button
-                          onClick={() => openQRModal(member.qrData!, member.name)}
-                          className="p-2 bg-blue-500 text-white rounded-full hover:scale-110 transition"
+                          onClick={() => openQRModal(member.qrData as string, member.name)}
+                          className="p-2 rounded-full text-white hover:scale-110 transition"
+                          style={{ background: colors.base }}
                           aria-label="QR"
                         >
                           <QrCode className="w-4 h-4" />
@@ -568,7 +725,7 @@ export default function AdminMembersPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center"
+            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center px-4"
             onClick={closePayModal}
           >
             <motion.div
@@ -576,45 +733,55 @@ export default function AdminMembersPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className="relative bg-white p-8 rounded-2xl shadow-xl w-full max-w-md"
-              onClick={e => e.stopPropagation()}
+              className="relative bg-white p-6 rounded-2xl shadow-xl w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
             >
               <button
                 onClick={closePayModal}
                 className="absolute top-3 right-3 text-gray-400 hover:text-black"
+                aria-label="Tutup"
               >
                 <X className="w-5 h-5" />
               </button>
-              <h2 className="text-lg font-bold mb-4">Perpanjang / Pembayaran Member</h2>
-              <div className="mb-4">
-                <div className="mb-2"><b>Nama:</b> {selectedMember.name}</div>
-                <div className="mb-2"><b>Email:</b> {selectedMember.email}</div>
-                <div className="mb-2">
+
+              <h2 className="text-lg font-bold mb-4" style={{ color: colors.text }}>
+                Perpanjang / Pembayaran Member
+              </h2>
+              <div className="mb-4 text-sm">
+                <div className="mb-1"><b>Nama:</b> {selectedMember.name}</div>
+                <div className="mb-1"><b>Email:</b> {selectedMember.email}</div>
+                <div className="mb-1">
                   <b>Status:</b>{" "}
                   <span className={selectedMember.status === "aktif" ? "text-green-600" : "text-red-500"}>
                     {selectedMember.status}
                   </span>
                 </div>
-                <div className="mb-2"><b>Expired Saat Ini:</b> {formatDate(selectedMember.expiresAt)}</div>
-                <div className="mb-2">
+                <div className="mb-1"><b>Expired Saat Ini:</b> {formatDate(selectedMember.expiresAt)}</div>
+                <div className="mb-1">
                   <b>Tipe Member:</b>{" "}
-                  {selectedMember.memberType && packageMap[selectedMember.memberType]
-                    ? packageMap[selectedMember.memberType]
-                    : <span className="text-gray-400 italic">Belum dipilih</span>}
+                  {selectedMember.memberType && packageMap[selectedMember.memberType] ? (
+                    packageMap[selectedMember.memberType]
+                  ) : (
+                    <span className="text-gray-400 italic">Belum dipilih</span>
+                  )}
                 </div>
               </div>
 
               {isVisitType(selectedMember) ? (
-                <div className="mb-3 px-3 py-2 rounded bg-yellow-50 border border-yellow-300 text-yellow-800 font-semibold text-center">
+                <div
+                  className="mb-3 px-3 py-2 rounded border text-yellow-800 font-semibold text-center"
+                  style={{ background: "#FFFBEB", borderColor: "#FDE68A" }}
+                >
                   <b>Paket Visit:</b> Masa aktif <b>1 hari</b> sejak pembayaran.
-                  <br /><span className="text-xs text-gray-500">(expired otomatis hari berikutnya jam 23:59)</span>
+                  <br />
+                  <span className="text-xs text-gray-500">(expired otomatis hari berikutnya jam 23:59)</span>
                 </div>
               ) : (
                 <div className="mb-3">
                   <label className="block mb-1 font-semibold">Perpanjang Berapa Bulan?</label>
                   <select
                     value={payMonth}
-                    onChange={e => setPayMonth(Number(e.target.value))}
+                    onChange={(e) => setPayMonth(Number(e.target.value))}
                     className="border px-3 py-2 rounded w-full"
                   >
                     <option value={1}>1 Bulan</option>
@@ -631,7 +798,7 @@ export default function AdminMembersPage() {
                   type="text"
                   className="border px-3 py-2 rounded w-full"
                   value={payNominal}
-                  onChange={e => {
+                  onChange={(e) => {
                     const val = e.target.value.replace(/\D/g, "");
                     setPayNominal(formatRupiah(val));
                   }}
@@ -639,6 +806,17 @@ export default function AdminMembersPage() {
                   required
                   inputMode="numeric"
                   autoComplete="off"
+                />
+              </div>
+
+              <div className="mb-3">
+                <label className="block mb-1 font-semibold">Catatan (opsional)</label>
+                <textarea
+                  className="border px-3 py-2 rounded w-full"
+                  rows={2}
+                  placeholder="Contoh: bayar cash, promo, dsb."
+                  value={payNotes}
+                  onChange={(e) => setPayNotes(e.target.value)}
                 />
               </div>
 
@@ -668,10 +846,11 @@ export default function AdminMembersPage() {
 
               <button
                 onClick={handlePay}
-                className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg mt-2 font-bold flex items-center gap-2 justify-center"
+                className="w-full text-white py-3 rounded-lg mt-2 font-bold flex items-center gap-2 justify-center"
+                style={{ background: "#16a34a" }}
                 disabled={payLoading || !payNominal || !payFile}
               >
-                {payLoading ? "Menyimpan..." : <><DollarSign className="w-5 h-5" /> Simpan & Perpanjang</>}
+                {payLoading ? "Menyimpan..." : (<><DollarSign className="w-5 h-5" /> Simpan & Perpanjang</>)}
               </button>
             </motion.div>
           </motion.div>
@@ -680,11 +859,11 @@ export default function AdminMembersPage() {
         {/* MODAL: Preview Foto */}
         {modalImage && (
           <motion.div
-            key="modal"
+            key="modal-img"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center"
+            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center px-4"
             onClick={() => setModalImage(null)}
           >
             <motion.div
@@ -698,6 +877,7 @@ export default function AdminMembersPage() {
               <button
                 onClick={() => setModalImage(null)}
                 className="absolute top-2 right-2 text-gray-600 hover:text-black"
+                aria-label="Tutup"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -712,35 +892,83 @@ export default function AdminMembersPage() {
           </motion.div>
         )}
 
-        {/* MODAL QR */}
+        {/* MODAL QR (dengan download PNG/PDF) */}
         {qrValue && (
           <motion.div
             key="qr"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center"
+            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center px-4"
             onClick={() => setQrValue(null)}
           >
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
+              initial={{ scale: 0.94, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              transition={{ duration: 0.3 }}
-              className="relative bg-white p-8 rounded-xl shadow-xl max-w-sm w-full text-center"
-              onClick={e => e.stopPropagation()}
+              exit={{ scale: 0.94, opacity: 0 }}
+              transition={{ duration: 0.25 }}
+              className="relative bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
             >
-              <button
-                onClick={() => setQrValue(null)}
-                className="absolute top-2 right-2 text-gray-600 hover:text-black"
+              {/* Bar atas */}
+              <div
+                className="px-5 py-3 flex items-center justify-between"
+                style={{ background: colors.base, color: colors.text }}
               >
-                <X className="w-5 h-5" />
-              </button>
-              <div className="mb-4 text-lg font-semibold">{qrMemberName}</div>
-              <div className="mx-auto mb-2 bg-white rounded-lg p-2 w-fit">
-                <QRCode value={qrValue} size={180} className="mx-auto rounded" />
+                <div className="font-bold">{qrMemberName}</div>
+                <button
+                  onClick={() => setQrValue(null)}
+                  className="p-1 rounded hover:bg-white/30"
+                  aria-label="Tutup"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <div className="text-xs text-gray-400 mb-2">Scan untuk buka profil member</div>
+
+              {/* Kartu QR untuk diexport */}
+              <div ref={qrCardRef} className="p-6">
+                <div className="rounded-2xl border shadow-md p-5 bg-white relative overflow-hidden" style={{ borderColor: colors.light }}>
+                  {/* Ribbon */}
+                  <div
+                    className="absolute -right-10 -top-3 rotate-45 text-xs font-bold px-12 py-1"
+                    style={{ background: colors.accent, color: colors.textLight }}
+                  >
+                    QR MEMBER
+                  </div>
+
+                  <div className="flex flex-col items-center">
+                    <div className="mb-3 font-extrabold text-xl" style={{ color: colors.text }}>
+                      Grind Up Fitness
+                    </div>
+                    <div className="bg-white p-2 rounded-lg border mb-2" style={{ borderColor: colors.base }}>
+                      <QRCode value={qrValue} size={180} />
+                    </div>
+                    <div className="text-xs text-gray-500">Scan untuk buka profil member</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="px-5 pb-5 flex items-center justify-end gap-2">
+                <button
+                  onClick={handleDownloadQRPNG}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-white"
+                  style={{ background: colors.darker }}
+                  disabled={qrDownloading}
+                >
+                  <Download className="w-4 h-4" />
+                  {qrDownloading ? "Menyiapkan..." : "PNG"}
+                </button>
+                <button
+                  onClick={handleDownloadQRPDF}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-white"
+                  style={{ background: colors.complementary }}
+                  disabled={qrDownloading}
+                >
+                  <FileText className="w-4 h-4" />
+                  {qrDownloading ? "Menyiapkan..." : "PDF"}
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}

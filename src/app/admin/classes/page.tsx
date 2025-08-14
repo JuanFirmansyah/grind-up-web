@@ -12,6 +12,17 @@ import BundlingTab from "./tabs/BundlingTab";
 import SpecialTab from "./tabs/SpecialTab";
 import FunctionalTab from "./tabs/FunctionalTab";
 
+/* ================== Color Palette (konsisten) ================== */
+const colors = {
+  base: "#97CCDD",
+  light: "#C1E3ED",
+  dark: "#6FB5CC",
+  darker: "#4A9EBB",
+  complementary: "#DDC497",
+  accent: "#DD97CC",
+  text: "#2D3748",
+  textLight: "#F8FAFC",
+};
 
 const navItems = [
   { label: "Dashboard", href: "/admin/dashboard" },
@@ -23,90 +34,151 @@ const navItems = [
   { label: "Galeri", href: "/admin/gallery" },
 ];
 
+type TabKey = "class" | "special" | "bundling" | "functional";
+
 export default function AdminClassesPage() {
-  const [activeTab, setActiveTab] = useState<"class" | "special" | "bundling" | "functional">("class");
+  const [activeTab, setActiveTab] = useState<TabKey>("class");
   const [isDrawerOpen, setDrawerOpen] = useState(false);
   const router = useRouter();
 
+  const handleAdd = () => {
+    if (activeTab === "class") router.push("/admin/classes/form");
+    else if (activeTab === "special") router.push("/admin/classes/form?type=special");
+    else if (activeTab === "bundling") router.push("/admin/classes/bundling-form");
+    else if (activeTab === "functional") router.push("/admin/classes/functional-form");
+  };
+
+  const AddButtonLabel: Record<TabKey, string> = {
+    class: "Tambah Kelas",
+    special: "Tambah Special",
+    bundling: "Tambah Paket",
+    functional: "Tambah Paket",
+  };
+
   return (
-    <main className="min-h-screen flex flex-col md:flex-row bg-gradient-to-br from-white to-blue-100">
+    <main
+      className="min-h-screen flex flex-col md:flex-row relative"
+      style={{
+        background: `linear-gradient(135deg, ${colors.light}20 0%, #ffffff 35%, ${colors.base}20 100%)`,
+      }}
+    >
       <AdminMobileDrawer isOpen={isDrawerOpen} onClose={() => setDrawerOpen(false)} navItems={navItems} />
       <AdminTopbar onOpen={() => setDrawerOpen(true)} />
       <AdminSidebar navItems={navItems} />
-      <div className="flex-1 p-6">
-        <div className="flex justify-between items-center mb-10">
-          <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">Manajemen Kelas</h1>
-          {activeTab === "class" && (
+
+      <div className="flex-1 p-6 md:p-8">
+        {/* Header */}
+        <div
+          className="rounded-2xl px-5 py-4 shadow-md border mb-6"
+          style={{
+            background: `linear-gradient(90deg, ${colors.darker} 0%, ${colors.dark} 100%)`,
+            color: colors.textLight,
+            borderColor: colors.light,
+          }}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <h1 className="text-2xl md:text-3xl font-extrabold">Manajemen Kelas</h1>
             <button
-              onClick={() => router.push("/admin/classes/form")}
-              className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-5 py-3 rounded-xl shadow-md hover:scale-105 transition-transform"
+              type="button"
+              onClick={handleAdd}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl shadow-md transition text-white hover:opacity-95"
+              style={{ background: colors.complementary }}
+              aria-label={AddButtonLabel[activeTab]}
+              title={AddButtonLabel[activeTab]}
             >
               <Plus className="w-5 h-5" />
-              <span className="hidden sm:inline">Tambah Kelas</span>
+              <span className="hidden sm:inline">{AddButtonLabel[activeTab]}</span>
             </button>
-          )}
-          {activeTab === "special" && (
-            <button
-              onClick={() => router.push("/admin/classes/form?type=special")}
-              className="flex items-center gap-2 bg-gradient-to-r from-pink-500 to-red-500 text-white px-5 py-3 rounded-xl shadow-md hover:scale-105 transition-transform"
-            >
-              <Plus className="w-5 h-5" />
-              <span className="hidden sm:inline">Tambah Special</span>
-            </button>
-          )}
-          {activeTab === "bundling" && (
-            <button
-              onClick={() => router.push("/admin/classes/bundling-form")}
-              className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-pink-500 text-white px-5 py-3 rounded-xl shadow-md hover:scale-105 transition-transform"
-            >
-              <Plus className="w-5 h-5" />
-              <span className="hidden sm:inline">Tambah Paket</span>
-            </button>
-          )}
-          {activeTab === "functional" && (
-            <button
-              onClick={() => router.push("/admin/classes/functional-form")}
-              className="flex items-center gap-2 bg-gradient-to-r from-green-500 to-green-700 text-white px-5 py-3 rounded-xl shadow-md hover:scale-105 transition-transform"
-            >
-              <Plus className="w-5 h-5" />
-              <span className="hidden sm:inline">Tambah Paket</span>
-            </button>
-          )}
+          </div>
+          <p className="opacity-90 mt-1 text-sm md:text-base">
+            Kelola Studio Class, Special Class, Paket Bundling, dan Functional sesuai kebutuhan operasional.
+          </p>
         </div>
 
-        <div className="flex gap-4 mb-6">
-          <button
-            onClick={() => setActiveTab("class")}
-            className={`px-4 py-2 rounded-full font-semibold shadow transition-all duration-200 ${activeTab === "class" ? "bg-blue-600 text-white" : "bg-white text-gray-600 border border-gray-300 hover:bg-gray-100"}`}
-          >
-            Studio Class
-          </button>
-          <button
-            onClick={() => setActiveTab("special")}
-            className={`px-4 py-2 rounded-full font-semibold shadow transition-all duration-200 ${activeTab === "special" ? "bg-pink-600 text-white" : "bg-white text-gray-600 border border-gray-300 hover:bg-gray-100"}`}
-          >
-            Special Class
-          </button>
-          <button
-            onClick={() => setActiveTab("bundling")}
-            className={`px-4 py-2 rounded-full font-semibold shadow transition-all duration-200 ${activeTab === "bundling" ? "bg-purple-600 text-white" : "bg-white text-gray-600 border border-gray-300 hover:bg-gray-100"}`}
-          >
-            Paket Bundling
-          </button>
-          <button
-            onClick={() => setActiveTab("functional")}
-            className={`px-4 py-2 rounded-full font-semibold shadow transition-all duration-200 ${activeTab === "functional" ? "bg-green-600 text-white" : "bg-white text-gray-600 border border-gray-300 hover:bg-gray-100"}`}
-          >
-            Functional
-          </button>
+        {/* Tabs */}
+        <div
+          className="sticky top-0 z-10 -mt-2 mb-6 pb-2 backdrop-blur supports-[backdrop-filter]:bg-white/70"
+          style={{ borderBottom: `1px solid ${colors.light}` }}
+        >
+          <div className="flex flex-wrap gap-2">
+            <TabButton
+              active={activeTab === "class"}
+              onClick={() => setActiveTab("class")}
+              label="Studio Class"
+              activeColor={colors.base}
+              textColor={colors.text}
+            />
+            <TabButton
+              active={activeTab === "special"}
+              onClick={() => setActiveTab("special")}
+              label="Special Class"
+              activeColor={colors.accent}
+              textColor={colors.text}
+            />
+            <TabButton
+              active={activeTab === "bundling"}
+              onClick={() => setActiveTab("bundling")}
+              label="Paket Bundling"
+              activeColor={colors.complementary}
+              textColor={colors.text}
+            />
+            <TabButton
+              active={activeTab === "functional"}
+              onClick={() => setActiveTab("functional")}
+              label="Functional"
+              activeColor={colors.darker}
+              textColor={colors.text}
+              darkText
+            />
+          </div>
         </div>
 
-        {activeTab === "class" && <RegulerTab />}
-        {activeTab === "special" && <SpecialTab />}
-        {activeTab === "bundling" && <BundlingTab />}
-        {activeTab === "functional" && <FunctionalTab />}
-
+        {/* Content */}
+        <section aria-live="polite">
+          {activeTab === "class" && <RegulerTab />}
+          {activeTab === "special" && <SpecialTab />}
+          {activeTab === "bundling" && <BundlingTab />}
+          {activeTab === "functional" && <FunctionalTab />}
+        </section>
       </div>
     </main>
+  );
+}
+
+/* ================== Components ================== */
+
+function TabButton({
+  active,
+  onClick,
+  label,
+  activeColor,
+  textColor,
+  darkText = false,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  activeColor: string;
+  textColor: string;
+  darkText?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={[
+        "px-4 py-2 rounded-full font-semibold shadow transition-all duration-150 outline-none",
+        "focus-visible:ring-2",
+        active ? "scale-[1.02]" : "hover:scale-[1.01]",
+      ].join(" ")}
+      style={{
+        background: active ? activeColor : "#ffffff",
+        color: active ? (darkText ? colors.textLight : "#ffffff") : textColor,
+        border: `1px solid ${active ? activeColor : colors.light}`,
+      }}
+    >
+      {label}
+    </button>
   );
 }
