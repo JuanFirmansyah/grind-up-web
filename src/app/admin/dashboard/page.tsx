@@ -281,7 +281,7 @@ export default function AdminDashboard() {
               value={stats.expired}
               chip="Expired"
               chipColor="#ef4444"
-              onClick={() => router.push("/admin/reports/finance")}
+              onClick={() => router.push("/admin/members")}
               title="Lihat daftar member yang sudah expired"
             />
           </div>
