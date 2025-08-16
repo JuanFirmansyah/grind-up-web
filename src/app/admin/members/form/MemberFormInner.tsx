@@ -1,8 +1,12 @@
-// src\app\admin\members\form\MemberFormInner.tsx
+// src/app/admin/members/form/MemberFormInner.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { AdminSidebar } from "@/components/AdminSidebar";
+import { AdminMobileDrawer } from "@/components/AdminMobileDrawer";
+import { AdminTopbar } from "@/components/AdminTopbar";
+import { signOut } from "firebase/auth";
 import { db, storage, auth } from "@/lib/firebase";
 import {
   collection,
@@ -21,7 +25,43 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { motion } from "framer-motion";
 import Image from "next/image";
 import { createUserWithEmailAndPassword } from "firebase/auth";
-import { Eye, EyeOff } from "lucide-react";
+import {
+  Eye,
+  EyeOff,
+  User,
+  Mail,
+  Phone,
+  Calendar,
+  Ruler,
+  Scale,
+  Droplet,
+  ShieldCheck,
+  BadgeInfo,
+  Image as ImgIcon,
+} from "lucide-react";
+
+type ChangeEvt =
+  | React.ChangeEvent<HTMLInputElement>
+  | React.ChangeEvent<HTMLSelectElement>
+  | React.ChangeEvent<HTMLTextAreaElement>;
+
+/* ================== Brand colors ================== */
+const brand = {
+  from: "#6FB5CC",
+  to: "#4A9EBB",
+  text: "#2D3748",
+  lightBorder: "#C1E3ED",
+};
+
+const navItems = [
+  { label: "Dashboard", href: "/admin/dashboard" },
+  { label: "Kelas", href: "/admin/classes" },
+  { label: "Paket Membership", href: "/admin/packages" },
+  { label: "Member", href: "/admin/members" },
+  { label: "Laporan", href: "/admin/reports" },
+  { label: "Pelatih Pribadi", href: "/admin/personal-trainer" },
+  { label: "Galeri", href: "/admin/gallery" },
+];
 
 /* ====================== Types ====================== */
 type MembershipOption = { value: string; label: string };
@@ -31,8 +71,8 @@ interface FormState {
   email: string;
   phone: string;
   status: "aktif" | "non-aktif";
-  createdAt: string; // tampil di UI
-  lastLogin: string; // tampil di UI
+  createdAt: string;
+  lastLogin: string;
   isVerified: boolean;
   age: string;
   gender: "" | "Laki-laki" | "Perempuan";
@@ -48,10 +88,9 @@ interface FormState {
 interface UserDoc {
   uid: string;
   role: "member";
-  // data profil
   name: string;
   email: string;
-  phone: string; // disimpan dalam format +62...
+  phone: string;
   status: "aktif" | "non-aktif";
   isVerified: boolean;
   age: string;
@@ -63,10 +102,8 @@ interface UserDoc {
   experience: string;
   bloodType: string;
   memberType: string;
-  // meta
   createdAt: Timestamp | ReturnType<typeof serverTimestamp>;
   lastLogin: Timestamp | ReturnType<typeof serverTimestamp>;
-  // opsional
   photoURL?: string;
   qrData?: string;
 }
@@ -75,18 +112,18 @@ interface MembershipPackage {
   name?: string;
 }
 
-/* ============== Typed Collections / Refs ============== */
+/* ============== Typed Collections ============== */
 const usersCol = collection(db, "users") as CollectionReference<UserDoc>;
 const membershipsCol = collection(
   db,
   "membership_packages"
 ) as CollectionReference<MembershipPackage>;
 
-/* ====================== Component ====================== */
 export default function MemberFormInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const userId = searchParams.get("id");
+  const [isDrawerOpen, setDrawerOpen] = useState(false);
 
   const [form, setForm] = useState<FormState>({
     name: "",
@@ -107,6 +144,8 @@ export default function MemberFormInner() {
     memberType: "",
   });
 
+  const [originalEmail, setOriginalEmail] = useState<string>("");
+
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState<boolean>(!!userId);
@@ -126,7 +165,7 @@ export default function MemberFormInner() {
     if (v instanceof Timestamp) return v.toDate().toISOString();
     if (typeof v === "string") return v;
     return new Date().toISOString();
-    };
+  };
 
   const diseaseLen = useMemo(() => form.diseaseHistory.length, [form.diseaseHistory]);
   const goalLen = useMemo(() => form.goal.length, [form.goal]);
@@ -134,28 +173,28 @@ export default function MemberFormInner() {
 
   /* ============ Fetch membership packages ============ */
   useEffect(() => {
-    async function fetchMembershipTypes() {
+    (async () => {
       const snap = await getDocs(membershipsCol);
       const items: MembershipOption[] = snap.docs.map((d) => {
         const data = d.data();
-        const label =
-          typeof data.name === "string" && data.name.trim() ? data.name : d.id;
+        const label = typeof data.name === "string" && data.name.trim() ? data.name : d.id;
         return { value: d.id, label };
       });
       setMembershipOptions(items);
-    }
-    fetchMembershipTypes();
+    })();
   }, []);
 
   /* ============ If editing, fetch user ============ */
   useEffect(() => {
-    const fetchMember = async () => {
-      if (!userId) return;
+    (async () => {
+      if (!userId) {
+        setInitialLoading(false);
+        return;
+      }
       try {
-        const userRef = doc(usersCol, userId);
-        const docSnap = await getDoc(userRef);
+        const docSnap = await getDoc(doc(usersCol, userId));
         if (docSnap.exists()) {
-          const data = docSnap.data(); // UserDoc
+          const data = docSnap.data();
           setForm((prev) => ({
             ...prev,
             name: data.name,
@@ -175,21 +214,19 @@ export default function MemberFormInner() {
             createdAt: toISO(data.createdAt),
             lastLogin: toISO(data.lastLogin),
           }));
+          setOriginalEmail(data.email || "");
         }
       } catch {
         alert("Gagal memuat data member.");
       } finally {
         setInitialLoading(false);
       }
-    };
-    fetchMember();
+    })();
   }, [userId]);
 
   /* ============ Handlers ============ */
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
-  ) => {
-    const { name, value, type } = e.target;
+  const handleChange: (e: ChangeEvt) => void = (e) => {
+    const { name, value, type } = e.target as HTMLInputElement;
     let val = value;
 
     if (name === "name") val = val.replace(/\b\w/g, (c) => c.toUpperCase());
@@ -198,7 +235,8 @@ export default function MemberFormInner() {
     if (name === "height" && val && parseInt(val) > 300) return;
     if (name === "weight" && val && parseInt(val) > 300) return;
     if (name === "age" && val && parseInt(val) > 120) return;
-    if (["diseaseHistory", "goal", "experience"].includes(name) && val.length > 250) return;
+    if (["diseaseHistory", "goal", "experience"].includes(name) && val.length > 250)
+      return;
 
     setForm((prev) => ({
       ...prev,
@@ -210,8 +248,10 @@ export default function MemberFormInner() {
   const validateForm = () => {
     const errors: Record<string, string> = {};
     if (!form.name.trim()) errors.name = "Nama wajib diisi";
-    if (!form.email.trim() || !/\S+@\S+\.\S+/.test(form.email)) errors.email = "Email tidak valid";
-    if (!form.phone.trim() || form.phone.length < 8) errors.phone = "No telepon tidak valid";
+    if (!form.email.trim() || !/\S+@\S+\.\S+/.test(form.email))
+      errors.email = "Email tidak valid";
+    if (!form.phone.trim() || form.phone.length < 8)
+      errors.phone = "No telepon tidak valid";
     if (!form.gender) errors.gender = "Pilih jenis kelamin";
     if (!form.age) errors.age = "Umur wajib diisi";
     if (!form.weight) errors.weight = "Berat badan wajib diisi";
@@ -225,17 +265,14 @@ export default function MemberFormInner() {
 
   const formatPhoneNumber = (phone: string) => {
     let formatted = phone.trim();
-    if (formatted.startsWith("08")) {
-      formatted = "+62" + formatted.slice(1);
-    } else if (formatted.startsWith("+62")) {
+    if (formatted.startsWith("08")) formatted = "+62" + formatted.slice(1);
+    else if (formatted.startsWith("+62")) {
       // ok
-    } else if (formatted.startsWith("62")) {
-      formatted = "+" + formatted;
-    }
+    } else if (formatted.startsWith("62")) formatted = "+" + formatted;
     return formatted;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit: React.FormEventHandler<HTMLFormElement> = async (e) => {
     e.preventDefault();
     setFormErrors({});
     setFileError("");
@@ -243,7 +280,7 @@ export default function MemberFormInner() {
     const errors = validateForm();
     if (Object.keys(errors).length > 0) {
       setFormErrors(errors);
-      window.scrollTo(0, 0);
+      window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
 
@@ -255,20 +292,23 @@ export default function MemberFormInner() {
     setLoading(true);
     try {
       const formattedPhone = formatPhoneNumber(form.phone);
-
       let currentUserId: string | null = userId;
 
       if (!currentUserId) {
-        // Create Auth user
+        // CREATE
         try {
-          const cred = await createUserWithEmailAndPassword(auth, form.email, password);
+          const cred = await createUserWithEmailAndPassword(
+            auth,
+            form.email,
+            password
+          );
           currentUserId = cred.user.uid;
         } catch (err: unknown) {
-          const msg =
+          const code =
             typeof err === "object" && err && "code" in err
               ? (err as { code?: string }).code
               : "";
-          if (msg === "auth/email-already-in-use") {
+          if (code === "auth/email-already-in-use") {
             setFormErrors((p) => ({ ...p, email: "Email sudah terdaftar." }));
             setLoading(false);
             return;
@@ -276,7 +316,7 @@ export default function MemberFormInner() {
           throw err;
         }
 
-        // Build payload for create (createdAt & lastLogin = serverTimestamp)
+        const userRef = doc(usersCol, currentUserId!);
         const createPayload: WithFieldValue<UserDoc> = {
           uid: currentUserId!,
           role: "member",
@@ -297,15 +337,12 @@ export default function MemberFormInner() {
           createdAt: serverTimestamp(),
           lastLogin: serverTimestamp(),
         };
-
-        const userRef = doc(usersCol, currentUserId!);
         await setDoc(userRef, createPayload);
 
-        // QR data
-        const qrData = `https://grindupfitness.com/member/${currentUserId}`;
-        await updateDoc(userRef, { qrData } as UpdateData<UserDoc>);
+        await updateDoc(userRef, {
+          qrData: `https://grindupfitness.com/member/${currentUserId}`,
+        } as UpdateData<UserDoc>);
 
-        // Photo upload
         if (selectedFile) {
           const photoRef = ref(storage, `members/${currentUserId}.jpg`);
           await uploadBytes(photoRef, selectedFile);
@@ -313,11 +350,9 @@ export default function MemberFormInner() {
           await updateDoc(userRef, { photoURL } as UpdateData<UserDoc>);
         }
       } else {
-        // Update existing (only lastLogin updated to serverTimestamp)
+        // UPDATE (Firestore only)
         const userRef = doc(usersCol, currentUserId);
-
         const updatePayload: UpdateData<UserDoc> = {
-          // jangan kirim createdAt supaya tidak overwrite
           name: form.name,
           email: form.email,
           phone: formattedPhone,
@@ -334,7 +369,6 @@ export default function MemberFormInner() {
           memberType: form.memberType,
           lastLogin: serverTimestamp(),
         };
-
         await updateDoc(userRef, updatePayload);
 
         if (selectedFile) {
@@ -358,7 +392,7 @@ export default function MemberFormInner() {
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
     setFileError("");
     const file = e.target.files?.[0] ?? null;
     if (!file) return;
@@ -374,287 +408,436 @@ export default function MemberFormInner() {
     setPreviewURL(URL.createObjectURL(file));
   };
 
+  const emailChanged = !!userId && originalEmail && originalEmail !== form.email;
+
+  const handleLogout = async () => {
+    await signOut(auth);
+    router.push("/login");
+  };
+
+  /* ====================== UI ====================== */
   if (initialLoading) {
     return (
       <main className="min-h-screen p-6">
         <div className="max-w-2xl mx-auto space-y-4">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-10 bg-gray-200 rounded animate-pulse"></div>
+            <div key={i} className="h-10 bg-gray-200 rounded animate-pulse" />
           ))}
         </div>
       </main>
     );
   }
 
-  /* ====================== UI ====================== */
   return (
-    <main className="min-h-screen bg-gradient-to-b from-white to-slate-100 p-6 md:p-10">
-      <motion.div
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="max-w-2xl mx-auto rounded-2xl shadow-lg bg-white p-6 md:p-10 space-y-6"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <button
-            onClick={() => router.back()}
-            className="flex items-center gap-1 text-sm text-blue-600 hover:underline"
-          >
-            <span className="text-lg">←</span> Kembali
-          </button>
-          <h1 className="text-2xl font-bold text-gray-800">
-            {userId ? "Edit Member" : "Tambah Member"}
-          </h1>
-        </div>
+    <main
+      className="min-h-screen flex flex-col md:flex-row"
+      style={{
+        background: `linear-gradient(135deg, ${brand.from}20 0%, #ffffff 35%, ${brand.to}20 100%)`,
+      }}
+    >
+      {/* navs OUTSIDE the card (correct layout) */}
+      <AdminMobileDrawer
+        isOpen={isDrawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        navItems={navItems}
+        onLogout={handleLogout}
+        showLogout
+      />
+      <AdminTopbar onOpen={() => setDrawerOpen(true)} />
+      <AdminSidebar navItems={navItems} onLogout={handleLogout} showLogout />
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Grid utama */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Nama */}
-            <div>
-              <label className="block mb-1 font-semibold">Nama</label>
-              <input
+      {/* content */}
+      <section className="flex-1 p-6 md:p-10">
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45 }}
+          className="max-w-2xl mx-auto rounded-2xl shadow-lg bg-white p-6 md:p-10 space-y-6 border"
+          style={{ borderColor: brand.lightBorder }}
+        >
+          {/* Header with gradient chip */}
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => router.back()}
+              className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg"
+              style={{ background: `${brand.from}20`, color: brand.to }}
+              title="Kembali"
+            >
+              ← Kembali
+            </button>
+            <h1
+              className="text-2xl font-extrabold"
+              style={{ color: brand.text }}
+            >
+              {userId ? "Edit Member" : "Tambah Member"}
+            </h1>
+          </div>
+
+          {/* Info: email warning if changed */}
+          {emailChanged && (
+            <div
+              className="rounded-xl px-4 py-3 text-sm"
+              style={{ background: "#FEF3C7", color: "#92400E" }}
+            >
+              <div className="flex items-start gap-2">
+                <BadgeInfo className="w-5 h-5 mt-0.5" />
+                <p>
+                  Email diubah dari <b>{originalEmail}</b> ke{" "}
+                  <b>{form.email}</b>. Ini hanya memperbarui{" "}
+                  <b>Firestore</b>. Untuk login dengan email baru, sinkronkan
+                  juga di <b>Firebase Authentication</b> (gunakan Cloud Function
+                  admin untuk <code>updateUser(uid, {`&#123; email &#125;`})</code> atau
+                  alur re-auth <code>updateEmail</code> jika user mengubah
+                  sendiri).
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field
+                label="Nama"
                 name="name"
                 value={form.name}
                 onChange={handleChange}
-                className={`w-full border px-4 py-2 rounded-lg ${formErrors.name && "border-red-500"}`}
+                placeholder="Nama lengkap"
+                icon={<User className="w-4 h-4" />}
+                error={formErrors.name}
               />
-              {formErrors.name && <p className="text-red-500 text-xs">{formErrors.name}</p>}
-            </div>
-
-            {/* Email */}
-            <div>
-              <label className="block mb-1 font-semibold">Email</label>
-              <input
+              <Field
                 type="email"
+                label="Email"
                 name="email"
                 value={form.email}
                 onChange={handleChange}
-                className={`w-full border px-4 py-2 rounded-lg ${formErrors.email && "border-red-500"}`}
+                placeholder="email@domain.com"
+                icon={<Mail className="w-4 h-4" />}
+                error={formErrors.email}
+                help="Email ini digunakan untuk login aplikasi."
               />
-              {formErrors.email && <p className="text-red-500 text-xs">{formErrors.email}</p>}
-            </div>
-
-            {/* Password (hanya tambah) */}
-            {!userId && (
-              <div>
-                <label className="block mb-1 font-semibold">Password</label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Minimal 6 karakter"
-                    className={`w-full border px-4 py-2 pr-10 rounded-lg ${formErrors.password && "border-red-500"}`}
-                  />
-                  <button
-                    type="button"
-                    className="absolute inset-y-0 right-0 px-3"
-                    onClick={() => setShowPassword((prev) => !prev)}
-                  >
-                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                  </button>
-                </div>
-                {formErrors.password && <p className="text-red-500 text-xs">{formErrors.password}</p>}
-              </div>
-            )}
-
-            {/* Telepon */}
-            <div>
-              <label className="block mb-1 font-semibold">Telepon</label>
-              <input
+              {!userId && (
+                <PasswordField
+                  value={password}
+                  onChange={(v) => setPassword(v)}
+                  show={showPassword}
+                  setShow={setShowPassword}
+                  error={formErrors.password}
+                />
+              )}
+              <Field
+                label="Telepon"
                 name="phone"
                 value={form.phone}
                 onChange={handleChange}
-                className={`w-full border px-4 py-2 rounded-lg ${formErrors.phone && "border-red-500"}`}
+                placeholder="contoh: 08123456789"
+                icon={<Phone className="w-4 h-4" />}
+                error={formErrors.phone}
+                help="Akan otomatis diformat ke +62 saat disimpan."
               />
-              {formErrors.phone && <p className="text-red-500 text-xs">{formErrors.phone}</p>}
-            </div>
-
-            {/* Gender */}
-            <div>
-              <label className="block mb-1 font-semibold">Jenis Kelamin</label>
-              <select
+              <SelectField
+                label="Jenis Kelamin"
                 name="gender"
                 value={form.gender}
                 onChange={handleChange}
-                className={`w-full border px-4 py-2 rounded-lg ${formErrors.gender && "border-red-500"}`}
-              >
-                <option value="">Pilih</option>
-                <option value="Laki-laki">Laki-laki</option>
-                <option value="Perempuan">Perempuan</option>
-              </select>
-              {formErrors.gender && <p className="text-red-500 text-xs">{formErrors.gender}</p>}
-            </div>
-
-            {/* Umur */}
-            <div>
-              <label className="block mb-1 font-semibold">Umur</label>
-              <input
+                options={[
+                  { value: "", label: "Pilih" },
+                  { value: "Laki-laki", label: "Laki-laki" },
+                  { value: "Perempuan", label: "Perempuan" },
+                ]}
+                error={formErrors.gender}
+              />
+              <Field
+                label="Umur"
                 name="age"
                 value={form.age}
                 onChange={handleChange}
-                className={`w-full border px-4 py-2 rounded-lg ${formErrors.age && "border-red-500"}`}
+                placeholder="contoh: 25"
+                icon={<Calendar className="w-4 h-4" />}
+                error={formErrors.age}
               />
-              {formErrors.age && <p className="text-red-500 text-xs">{formErrors.age}</p>}
-            </div>
-
-            {/* Berat */}
-            <div>
-              <label className="block mb-1 font-semibold">Berat Badan (kg)</label>
-              <input
+              <Field
+                label="Berat Badan (kg)"
                 name="weight"
                 value={form.weight}
                 onChange={handleChange}
-                className={`w-full border px-4 py-2 rounded-lg ${formErrors.weight && "border-red-500"}`}
+                placeholder="contoh: 70"
+                icon={<Scale className="w-4 h-4" />}
+                error={formErrors.weight}
               />
-              {formErrors.weight && <p className="text-red-500 text-xs">{formErrors.weight}</p>}
-            </div>
-
-            {/* Tinggi */}
-            <div>
-              <label className="block mb-1 font-semibold">Tinggi Badan (cm)</label>
-              <input
+              <Field
+                label="Tinggi Badan (cm)"
                 name="height"
                 value={form.height}
                 onChange={handleChange}
-                className={`w-full border px-4 py-2 rounded-lg ${formErrors.height && "border-red-500"}`}
+                placeholder="contoh: 170"
+                icon={<Ruler className="w-4 h-4" />}
+                error={formErrors.height}
               />
-              {formErrors.height && <p className="text-red-500 text-xs">{formErrors.height}</p>}
-            </div>
-
-            {/* Golongan darah */}
-            <div>
-              <label className="block mb-1 font-semibold">Golongan Darah</label>
-              <input
+              <Field
+                label="Golongan Darah"
                 name="bloodType"
                 value={form.bloodType}
                 onChange={handleChange}
-                className="w-full border px-4 py-2 rounded-lg"
+                placeholder="A / B / AB / O"
+                icon={<Droplet className="w-4 h-4" />}
               />
-            </div>
-
-            {/* Tipe Member */}
-            <div>
-              <label className="block mb-1 font-semibold">Tipe Member</label>
-              <select
+              <SelectField
+                label="Tipe Member"
                 name="memberType"
                 value={form.memberType}
                 onChange={handleChange}
-                className={`w-full border px-4 py-2 rounded-lg ${formErrors.memberType && "border-red-500"}`}
-                required
-              >
-                <option value="">Pilih Tipe Member</option>
-                {membershipOptions.map((type) => (
-                  <option value={type.value} key={type.value}>
-                    {type.label}
-                  </option>
-                ))}
-              </select>
-              {formErrors.memberType && <p className="text-red-500 text-xs">{formErrors.memberType}</p>}
+                options={[
+                  { value: "", label: "Pilih Tipe Member" },
+                  ...membershipOptions,
+                ]}
+                error={formErrors.memberType}
+              />
             </div>
-          </div>
 
-          {/* Status & Verifikasi */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block mb-1 font-semibold">Status</label>
-              <select
+            {/* Status & Verifikasi */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <SelectField
+                label="Status"
                 name="status"
                 value={form.status}
                 onChange={handleChange}
-                className="w-full border px-4 py-2 rounded-lg"
-              >
-                <option value="aktif">Aktif</option>
-                <option value="non-aktif">Non-Aktif</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-2 mt-6">
-              <input
-                type="checkbox"
-                name="isVerified"
-                checked={form.isVerified}
-                onChange={handleChange}
-                className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                options={[
+                  { value: "aktif", label: "Aktif" },
+                  { value: "non-aktif", label: "Non-Aktif" },
+                ]}
               />
-              <label className="text-sm text-gray-700">Terverifikasi</label>
+              <div className="flex items-center gap-2 mt-6">
+                <input
+                  type="checkbox"
+                  name="isVerified"
+                  checked={form.isVerified}
+                  onChange={handleChange}
+                  className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                  id="verified"
+                />
+                <label
+                  htmlFor="verified"
+                  className="text-sm text-gray-700 flex items-center gap-1"
+                >
+                  <ShieldCheck className="w-4 h-4" /> Terverifikasi
+                </label>
+              </div>
             </div>
-          </div>
 
-          {/* Riwayat Penyakit */}
-          <div>
-            <div className="flex items-center justify-between">
-              <label className="block mb-1 font-semibold">Riwayat Penyakit (opsional)</label>
-              <span className="text-xs text-gray-500">{diseaseLen}/250</span>
-            </div>
-            <textarea
+            <TextareaWithCounter
+              label="Riwayat Penyakit (opsional)"
               name="diseaseHistory"
               value={form.diseaseHistory}
               onChange={handleChange}
-              rows={2}
-              className="w-full border px-4 py-2 rounded-lg"
+              count={diseaseLen}
             />
-          </div>
-
-          {/* Tujuan Bergabung */}
-          <div>
-            <div className="flex items-center justify-between">
-              <label className="block mb-1 font-semibold">Tujuan Bergabung (opsional)</label>
-              <span className="text-xs text-gray-500">{goalLen}/250</span>
-            </div>
-            <textarea
+            <TextareaWithCounter
+              label="Tujuan Bergabung (opsional)"
               name="goal"
               value={form.goal}
               onChange={handleChange}
-              rows={2}
-              className="w-full border px-4 py-2 rounded-lg"
+              count={goalLen}
             />
-          </div>
-
-          {/* Pengalaman Sebelumnya */}
-          <div>
-            <div className="flex items-center justify-between">
-              <label className="block mb-1 font-semibold">Pengalaman Sebelumnya (opsional)</label>
-              <span className="text-xs text-gray-500">{expLen}/250</span>
-            </div>
-            <textarea
+            <TextareaWithCounter
+              label="Pengalaman Sebelumnya (opsional)"
               name="experience"
               value={form.experience}
               onChange={handleChange}
-              rows={2}
-              className="w-full border px-4 py-2 rounded-lg"
+              count={expLen}
             />
-          </div>
 
-          {/* Foto */}
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">Foto Member</label>
-            <input type="file" accept="image/png, image/jpeg" onChange={handleFileChange} />
-            {fileError && <p className="text-red-500 text-xs">{fileError}</p>}
-            {previewURL && (
-              <Image
-                src={previewURL}
-                alt="Preview"
-                className="mt-2 h-32 rounded-lg object-cover"
-                width={128}
-                height={128}
-                style={{ objectFit: "cover" }}
-              />
-            )}
-          </div>
+            {/* Foto */}
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-gray-700">
+                Foto Member
+              </label>
+              <div className="flex items-center gap-3">
+                <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer border bg-white hover:bg-gray-50">
+                  <ImgIcon className="w-4 h-4" />
+                  <span>Pilih Foto (JPG/PNG, ≤2MB)</span>
+                  <input
+                    type="file"
+                    accept="image/png, image/jpeg"
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
+                </label>
+                {fileError && (
+                  <span className="text-xs text-red-500">{fileError}</span>
+                )}
+              </div>
+              {previewURL && (
+                <Image
+                  src={previewURL}
+                  alt="Preview"
+                  className="mt-2 h-32 w-32 rounded-lg object-cover border"
+                  width={128}
+                  height={128}
+                  style={{ borderColor: brand.lightBorder }}
+                />
+              )}
+            </div>
 
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg shadow hover:bg-blue-700 transition"
-          >
-            {loading ? "Menyimpan..." : userId ? "Simpan Perubahan" : "Simpan Member"}
-          </button>
-        </form>
-      </motion.div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full text-white py-3 rounded-xl shadow transition disabled:opacity-60"
+              style={{
+                background: `linear-gradient(90deg, ${brand.from} 0%, ${brand.to} 100%)`,
+              }}
+            >
+              {loading
+                ? "Menyimpan..."
+                : userId
+                ? "Simpan Perubahan"
+                : "Simpan Member"}
+            </button>
+          </form>
+        </motion.div>
+      </section>
     </main>
+  );
+}
+
+/* ================== Small UI pieces ================== */
+
+function Field(props: {
+  label: string;
+  name: string;
+  value: string;
+  onChange: (e: ChangeEvt) => void;
+  placeholder?: string;
+  type?: string;
+  icon?: React.ReactNode;
+  error?: string;
+  help?: string;
+}) {
+  const {
+    label,
+    name,
+    value,
+    onChange,
+    placeholder,
+    type = "text",
+    icon,
+    error,
+    help,
+  } = props;
+  return (
+    <div>
+      <label className="block mb-1 font-semibold">{label}</label>
+      <div className="relative">
+        {icon && (
+          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+            {icon}
+          </div>
+        )}
+        <input
+          type={type}
+          name={name}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          className={`w-full border rounded-lg px-3 ${
+            icon ? "pl-9" : "pl-3"
+          } py-2 ${error ? "border-red-500" : "border-gray-300"}`}
+        />
+      </div>
+      {help && <p className="text-xs text-gray-500 mt-1">{help}</p>}
+      {error && <p className="text-red-500 text-xs mt-1">{error}</p>}
+    </div>
+  );
+}
+
+function SelectField(props: {
+  label: string;
+  name: string;
+  value: string;
+  onChange: (e: ChangeEvt) => void;
+  options: { value: string; label: string }[];
+  error?: string;
+}) {
+  const { label, name, value, onChange, options, error } = props;
+  return (
+    <div>
+      <label className="block mb-1 font-semibold">{label}</label>
+      <select
+        name={name}
+        value={value}
+        onChange={onChange}
+        className={`w-full border px-4 py-2 rounded-lg ${
+          error ? "border-red-500" : "border-gray-300"
+        }`}
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      {error && <p className="text-red-500 text-xs mt-1">{error}</p>}
+    </div>
+  );
+}
+
+function TextareaWithCounter(props: {
+  label: string;
+  name: string;
+  value: string;
+  onChange: (e: ChangeEvt) => void;
+  count: number;
+}) {
+  const { label, name, value, onChange, count } = props;
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <label className="block mb-1 font-semibold">{label}</label>
+        <span className="text-xs text-gray-500">{count}/250</span>
+      </div>
+      <textarea
+        name={name}
+        value={value}
+        onChange={onChange}
+        rows={2}
+        className="w-full border px-4 py-2 rounded-lg border-gray-300"
+      />
+    </div>
+  );
+}
+
+function PasswordField(props: {
+  value: string;
+  onChange: (v: string) => void;
+  show: boolean;
+  setShow: (v: boolean) => void;
+  error?: string;
+}) {
+  const { value, onChange, show, setShow, error } = props;
+  return (
+    <div>
+      <label className="block mb-1 font-semibold">Password</label>
+      <div className="relative">
+        <input
+          type={show ? "text" : "password"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Minimal 6 karakter"
+          className={`w-full border px-4 py-2 pr-10 rounded-lg ${
+            error ? "border-red-500" : "border-gray-300"
+          }`}
+        />
+        <button
+          type="button"
+          className="absolute inset-y-0 right-0 px-3"
+          onClick={() => setShow(!show)}
+          aria-label="Toggle password"
+        >
+          {show ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+        </button>
+      </div>
+      {error && <p className="text-red-500 text-xs">{error}</p>}
+    </div>
   );
 }

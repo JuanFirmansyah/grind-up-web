@@ -13,6 +13,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import dayjs from "dayjs";
 import "dayjs/locale/id";
 import Image from "next/image";
+import { CreditCard } from "lucide-react";
 
 /* ============ Palet warna konsisten ============ */
 const colors = {
@@ -53,10 +54,10 @@ type CoachType = {
 
 type ClassType = {
   id: string;
-  date: string;          // "YYYY-MM-DD"
+  date: string; // "YYYY-MM-DD"
   name: string;
   time: string;
-  coach: string;         // nama coach (relasi by name)
+  coach: string; // nama coach (relasi by name)
   coachPhoto?: string;
   desc?: string;
   memberCount?: number;
@@ -78,6 +79,19 @@ function toDateValue(v: MaybeTs): Date | null {
 const today = new Date();
 const fmtDateId = (d: Date) => dayjs(d).locale("id").format("YYYY-MM-DD");
 
+type PendingBreakdown = {
+  qris: number;
+  cash: number;
+  transfer: number;
+  other: number;
+};
+
+type PaymentDoc = {
+  approvedAt?: MaybeTs;
+  status?: string;
+  method?: string;
+};
+
 export default function AdminDashboard() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -90,6 +104,8 @@ export default function AdminDashboard() {
     attendanceToday: 0,
     expiringSoon: 0,
     expired: 0,
+    pendingPayments: 0,
+    pendingPaymentsBy: { qris: 0, cash: 0, transfer: 0, other: 0 } as PendingBreakdown,
   });
 
   // Data kelas dan coach
@@ -115,7 +131,7 @@ export default function AdminDashboard() {
     async function fetchData() {
       setLoading(true);
       try {
-        // ========= Members (monitoring & total) =========
+        // ========= Members =========
         const usersSnap = await getDocs(collection(db, "users"));
         let totalMembers = 0;
         let expiringSoon = 0;
@@ -141,7 +157,7 @@ export default function AdminDashboard() {
           }
         });
 
-        // ========= Classes (real data, bukan dummy) =========
+        // ========= Classes =========
         const classesSnap = await getDocs(collection(db, "classes"));
         const classesData: ClassType[] = [];
         classesSnap.forEach((docSnap) => {
@@ -171,7 +187,6 @@ export default function AdminDashboard() {
           });
         });
 
-        // Kelas akan datang (date >= hari ini)
         const upcomingClasses = classesData.filter((c) => c.date >= fmtDateId(today)).length;
 
         // ========= Coaches =========
@@ -182,12 +197,36 @@ export default function AdminDashboard() {
           if (c?.name) coachMap[c.name] = c;
         });
 
+        // ========= Payments (pending + breakdown) =========
+        const paymentsSnap = await getDocs(collection(db, "payments"));
+        let pendingPayments = 0;
+        const pendingBy: PendingBreakdown = { qris: 0, cash: 0, transfer: 0, other: 0 };
+
+        paymentsSnap.forEach((docSnap) => {
+          const p = docSnap.data() as PaymentDoc;
+          const isApproved = Boolean(toDateValue(p.approvedAt));
+          const status = (p.status || "").toLowerCase();
+          const failed =
+            status === "rejected" || status === "cancelled" || status === "failed" || status === "expired";
+
+          if (!isApproved && !failed) {
+            pendingPayments += 1;
+            const method = (p.method || "").toLowerCase();
+            if (method === "qris") pendingBy.qris += 1;
+            else if (method === "cash") pendingBy.cash += 1;
+            else if (method === "transfer" || method === "bank_transfer") pendingBy.transfer += 1;
+            else pendingBy.other += 1;
+          }
+        });
+
         setStats({
           totalMembers,
           upcomingClasses,
-          attendanceToday: 0, // jika ada koleksi attendance, hitung di sini
+          attendanceToday: 0,
           expiringSoon,
           expired,
+          pendingPayments,
+          pendingPaymentsBy: pendingBy,
         });
 
         setClasses(classesData);
@@ -224,8 +263,8 @@ export default function AdminDashboard() {
       {loading ? (
         <section className="flex-1 p-6 md:p-8 space-y-6">
           <div className="h-10 w-1/3 bg-gray-200 rounded animate-pulse" />
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[...Array(3)].map((_, i) => (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {[...Array(4)].map((_, i) => (
               <div key={i} className="h-24 bg-gray-200 rounded animate-pulse" />
             ))}
           </div>
@@ -239,11 +278,7 @@ export default function AdminDashboard() {
       ) : (
         <section className="flex-1 p-6 md:p-8 space-y-6 overflow-x-hidden">
           {/* Header */}
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45 }}
-          >
+          <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }}>
             <div
               className="rounded-2xl px-5 py-4 shadow-md border"
               style={{
@@ -259,11 +294,21 @@ export default function AdminDashboard() {
             </div>
           </motion.div>
 
-          {/* Stat Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Stat Cards (4 kolom) */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <StatCard label="Total Member" value={stats.totalMembers} chip="Semua" chipColor={colors.base} />
             <StatCard label="Kelas Akan Datang" value={stats.upcomingClasses} chip="Kelas" chipColor="#22c55e" />
             <StatCard label="Absensi Hari Ini" value={stats.attendanceToday} chip="Absensi" chipColor="#a855f7" />
+            <ClickableStatCard
+              label="Belum Terverifikasi"
+              value={stats.pendingPayments}
+              chip="Finance"
+              chipColor={colors.dark}
+              onClick={() => router.push("/admin/reports/finance")}
+              title="Lihat & verifikasi pembayaran"
+              icon={<CreditCard className="h-6 w-6 text-gray-400" />}
+              subtitle={`QRIS ${stats.pendingPaymentsBy.qris} • Cash ${stats.pendingPaymentsBy.cash} • Transfer ${stats.pendingPaymentsBy.transfer}${stats.pendingPaymentsBy.other ? ` • Lainnya ${stats.pendingPaymentsBy.other}` : ""}`}
+            />
           </div>
 
           {/* Monitoring Member */}
@@ -338,7 +383,10 @@ function StatCard({
             {value}
           </div>
         </div>
-        <span className="px-2 py-1 text-xs font-bold rounded-lg" style={{ background: chipColor, color: colors.textLight }}>
+        <span
+          className="px-2 py-1 text-xs font-bold rounded-lg"
+          style={{ background: chipColor, color: colors.textLight }}
+        >
           {chip}
         </span>
       </div>
@@ -353,6 +401,8 @@ function ClickableStatCard({
   chipColor,
   onClick,
   title,
+  icon,
+  subtitle,
 }: {
   label: string;
   value: number;
@@ -360,6 +410,8 @@ function ClickableStatCard({
   chipColor: string;
   onClick: () => void;
   title: string;
+  icon?: React.ReactNode;
+  subtitle?: string;
 }) {
   return (
     <motion.button
@@ -370,16 +422,23 @@ function ClickableStatCard({
       className="w-full text-left rounded-2xl p-4 shadow-sm border bg-white transition"
       style={{ borderColor: colors.light }}
     >
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between">
         <div>
           <div className="text-sm text-gray-500">{label}</div>
           <div className="text-3xl font-extrabold" style={{ color: colors.text }}>
             {value}
           </div>
+          {subtitle && <div className="mt-1 text-xs text-gray-500">{subtitle}</div>}
         </div>
-        <span className="px-2 py-1 text-xs font-bold rounded-lg" style={{ background: chipColor, color: colors.textLight }}>
-          {chip}
-        </span>
+        <div className="flex items-center gap-2">
+          {icon}
+          <span
+            className="px-2 py-1 text-xs font-bold rounded-lg"
+            style={{ background: chipColor, color: colors.textLight }}
+          >
+            {chip}
+          </span>
+        </div>
       </div>
     </motion.button>
   );
