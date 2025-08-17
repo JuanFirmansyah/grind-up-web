@@ -34,7 +34,7 @@ import {
   query,
   where,
   getDocs,
-  type DocumentData
+  type CollectionReference
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
@@ -58,6 +58,20 @@ type FormState = {
   duration: string;
   level: "Beginner" | "Intermediate" | "Advanced";
   calorieBurn: string;
+  imageUrl: string;
+};
+
+type ClassDoc = {
+  className: string;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:mm
+  coach: string;
+  slots: number;
+  type: "regular" | "special";
+  description: string;
+  duration: number; // menit
+  level: "Beginner" | "Intermediate" | "Advanced";
+  calorieBurn: number | null;
   imageUrl: string;
 };
 
@@ -128,6 +142,9 @@ export default function ClassForm() {
 
   const headerTitle = useMemo(() => (classId ? "Edit Kelas" : "Tambah Kelas"), [classId]);
 
+  // Koleksi classes yang bertipe kuat
+  const classesCol = collection(db, "classes") as CollectionReference<ClassDoc>;
+
   /* ====================== Effects ====================== */
   useEffect(() => {
     // preselect special jika ?type=special dan bukan edit
@@ -141,7 +158,7 @@ export default function ClassForm() {
       const q = query(collection(db, "users"), where("role", "==", "coach"));
       const snapshot = await getDocs(q);
       const data: Coach[] = snapshot.docs.map((d) => {
-        const v = d.data() as DocumentData;
+        const v = d.data();
         return {
           id: d.id,
           name: (v.name as string) || (v.fullName as string) || "No Name",
@@ -157,33 +174,28 @@ export default function ClassForm() {
     const fetchData = async () => {
       if (!classId) return;
       try {
-        const docSnap = await getDoc(doc(db, "classes", classId));
+        const docRef = doc(classesCol, classId);
+        const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
-          const data = docSnap.data() as DocumentData;
+          const data = docSnap.data() as ClassDoc;
           setForm({
-            className: (data.className as string) || "",
+            className: data.className || "",
             customClassName: "",
-            date: (data.date as string) || "",
-            time: (data.time as string) || "",
-            coach: (data.coach as string) || "",
-            slots:
-              data.slots !== undefined && data.slots !== null
-                ? String(data.slots as number)
-                : "",
-            type: ((data.type as FormState["type"]) || "regular"),
-            description: (data.description as string) || "",
-            duration:
-              data.duration !== undefined && data.duration !== null
-                ? String(data.duration as number)
-                : "",
-            level: ((data.level as FormState["level"]) || "Beginner"),
+            date: data.date || "",
+            time: data.time || "",
+            coach: data.coach || "",
+            slots: String(data.slots ?? ""),
+            type: data.type || "regular",
+            description: data.description || "",
+            duration: String(data.duration ?? ""),
+            level: data.level || "Beginner",
             calorieBurn:
-              data.calorieBurn !== undefined && data.calorieBurn !== null
-                ? String(data.calorieBurn as number)
+              data.calorieBurn !== null && data.calorieBurn !== undefined
+                ? String(data.calorieBurn)
                 : "",
-            imageUrl: (data.imageUrl as string) || ""
+            imageUrl: data.imageUrl || ""
           });
-          setImagePreview(((data.imageUrl as string) || null) ?? null);
+          setImagePreview(data.imageUrl || null);
         }
       } catch {
         setNotice({ kind: "error", text: "Gagal memuat data kelas." });
@@ -192,7 +204,7 @@ export default function ClassForm() {
       }
     };
     void fetchData();
-  }, [classId]);
+  }, [classId, classesCol]);
 
   /* ====================== Handlers ====================== */
   const handleChange = (
@@ -234,7 +246,6 @@ export default function ClassForm() {
     };
   };
 
-  const closeNotice = () => setNotice(null);
   const toInt = (v: string) => parseInt(v, 10);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -290,10 +301,15 @@ export default function ClassForm() {
       }
     }
 
-    const payload: Record<string, unknown> = {
-      ...form,
+    // payload typed ke ClassDoc → kompatibel dengan Firestore UpdateData/SetData
+    const payload: ClassDoc = {
       className: realClassName,
+      date: form.date,
+      time: form.time,
+      coach: form.coach,
       slots: slotsNum,
+      type: form.type,
+      description: form.description,
       duration: durationNum,
       level: form.level,
       calorieBurn:
@@ -303,9 +319,9 @@ export default function ClassForm() {
 
     try {
       if (classId) {
-        await updateDoc(doc(db, "classes", classId), payload);
+        await updateDoc(doc(classesCol, classId), payload);
       } else {
-        await addDoc(collection(db, "classes"), payload);
+        await addDoc(classesCol, payload);
       }
       setNotice({ kind: "success", text: "Kelas berhasil disimpan." });
       setTimeout(() => {
@@ -354,16 +370,8 @@ export default function ClassForm() {
   return (
     <div className={`min-h-screen ${BRAND.bg}`}>
       {/* Topbar & responsive nav */}
-      <AdminTopbar
-        onOpen={openMobile}
-        showLogout
-        onLogout={handleLogout}
-      />
-      <AdminMobileDrawer
-        isOpen={mobileOpen}
-        navItems={NAV_ITEMS}
-        onClose={closeMobile}
-      />
+      <AdminTopbar onOpen={openMobile} showLogout onLogout={handleLogout} />
+      <AdminMobileDrawer isOpen={mobileOpen} navItems={NAV_ITEMS} onClose={closeMobile} />
       <div className="flex">
         <AdminSidebar navItems={NAV_ITEMS} showLogout onLogout={handleLogout} />
 
@@ -400,7 +408,7 @@ export default function ClassForm() {
               <div className="flex-1 text-sm">{notice.text}</div>
               <button
                 type="button"
-                onClick={closeNotice}
+                onClick={() => setNotice(null)}
                 className="ml-2 text-xs underline decoration-dotted"
                 aria-label="Tutup notifikasi"
               >
