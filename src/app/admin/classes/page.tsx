@@ -1,4 +1,5 @@
-// src/app/admin/classes/page.tsx
+// src\app\admin\classes\page.tsx
+
 "use client";
 
 import { useState } from "react";
@@ -8,9 +9,7 @@ import { AdminTopbar } from "@/components/AdminTopbar";
 import { AdminMobileDrawer } from "@/components/AdminMobileDrawer";
 import { AdminSidebar } from "@/components/AdminSidebar";
 import RegulerTab from "./tabs/RegulerTab";
-import BundlingTab from "./tabs/BundlingTab";
 import SpecialTab from "./tabs/SpecialTab";
-import FunctionalTab from "./tabs/FunctionalTab";
 
 /* ================== Color Palette (konsisten) ================== */
 const colors = {
@@ -34,7 +33,7 @@ const navItems = [
   { label: "Galeri", href: "/admin/gallery" },
 ];
 
-type TabKey = "class" | "special" | "bundling" | "functional";
+type TabKey = "class" | "special";
 
 export default function AdminClassesPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("class");
@@ -44,15 +43,11 @@ export default function AdminClassesPage() {
   const handleAdd = () => {
     if (activeTab === "class") router.push("/admin/classes/form");
     else if (activeTab === "special") router.push("/admin/classes/form?type=special");
-    else if (activeTab === "bundling") router.push("/admin/classes/bundling-form");
-    else if (activeTab === "functional") router.push("/admin/classes/functional-form");
   };
 
   const AddButtonLabel: Record<TabKey, string> = {
     class: "Tambah Kelas",
     special: "Tambah Special",
-    bundling: "Tambah Paket",
-    functional: "Tambah Paket",
   };
 
   return (
@@ -91,7 +86,7 @@ export default function AdminClassesPage() {
             </button>
           </div>
           <p className="opacity-90 mt-1 text-sm md:text-base">
-            Kelola Studio Class, Special Class, Paket Bundling, dan Functional sesuai kebutuhan operasional.
+            Kelola Studio Class & Special Class. Akses member diatur dari menu <b>Paket Membership</b> (berdasarkan TAG).
           </p>
         </div>
 
@@ -115,21 +110,6 @@ export default function AdminClassesPage() {
               activeColor={colors.accent}
               textColor={colors.text}
             />
-            <TabButton
-              active={activeTab === "bundling"}
-              onClick={() => setActiveTab("bundling")}
-              label="Paket Bundling"
-              activeColor={colors.complementary}
-              textColor={colors.text}
-            />
-            <TabButton
-              active={activeTab === "functional"}
-              onClick={() => setActiveTab("functional")}
-              label="Functional"
-              activeColor={colors.darker}
-              textColor={colors.text}
-              darkText
-            />
           </div>
         </div>
 
@@ -137,8 +117,6 @@ export default function AdminClassesPage() {
         <section aria-live="polite">
           {activeTab === "class" && <RegulerTab />}
           {activeTab === "special" && <SpecialTab />}
-          {activeTab === "bundling" && <BundlingTab />}
-          {activeTab === "functional" && <FunctionalTab />}
         </section>
       </div>
     </main>

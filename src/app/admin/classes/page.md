@@ -1,146 +1,184 @@
 // src/app/admin/classes/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
-import { db } from "@/lib/firebase";
-import { collection, getDocs, deleteDoc, doc } from "firebase/firestore";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Trash2, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { AdminTopbar } from "@/components/AdminTopbar";
 import { AdminMobileDrawer } from "@/components/AdminMobileDrawer";
 import { AdminSidebar } from "@/components/AdminSidebar";
 import RegulerTab from "./tabs/RegulerTab";
 import BundlingTab from "./tabs/BundlingTab";
+import SpecialTab from "./tabs/SpecialTab";
+import FunctionalTab from "./tabs/FunctionalTab";
 
-interface GymClass {
-  id: string;
-  className: string;
-  date: string;
-  time: string;
-  coach: string;
-  slots: number;
-  type: string;
-}
+/* ================== Color Palette (konsisten) ================== */
+const colors = {
+  base: "#97CCDD",
+  light: "#C1E3ED",
+  dark: "#6FB5CC",
+  darker: "#4A9EBB",
+  complementary: "#DDC497",
+  accent: "#DD97CC",
+  text: "#2D3748",
+  textLight: "#F8FAFC",
+};
 
 const navItems = [
   { label: "Dashboard", href: "/admin/dashboard" },
   { label: "Kelas", href: "/admin/classes" },
+  { label: "Paket Membership", href: "/admin/packages" },
   { label: "Member", href: "/admin/members" },
   { label: "Laporan", href: "/admin/reports" },
+  { label: "Pelatih Pribadi", href: "/admin/personal-trainer" },
+  { label: "Galeri", href: "/admin/gallery" },
 ];
 
+type TabKey = "class" | "special" | "bundling" | "functional";
+
 export default function AdminClassesPage() {
-  const [loading, setLoading] = useState(true);
-  const [classes, setClasses] = useState<GymClass[]>([]);
+  const [activeTab, setActiveTab] = useState<TabKey>("class");
   const [isDrawerOpen, setDrawerOpen] = useState(false);
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"reguler" | "bundling">("reguler");
 
-
-  const fetchClasses = async () => {
-    setLoading(true);
-    const querySnapshot = await getDocs(collection(db, "classes"));
-    const data: GymClass[] = [];
-    querySnapshot.forEach((docSnap) => {
-      data.push({ id: docSnap.id, ...docSnap.data() } as GymClass);
-    });
-    setClasses(data);
-    setLoading(false);
+  const handleAdd = () => {
+    if (activeTab === "class") router.push("/admin/classes/form");
+    else if (activeTab === "special") router.push("/admin/classes/form?type=special");
+    else if (activeTab === "bundling") router.push("/admin/classes/bundling-form");
+    else if (activeTab === "functional") router.push("/admin/classes/functional-form");
   };
 
-  useEffect(() => {
-    fetchClasses();
-  }, []);
-
-  const handleDelete = async (id: string) => {
-    if (confirm("Yakin ingin menghapus kelas ini?")) {
-      await deleteDoc(doc(db, "classes", id));
-      fetchClasses();
-    }
+  const AddButtonLabel: Record<TabKey, string> = {
+    class: "Tambah Kelas",
+    special: "Tambah Special",
+    bundling: "Tambah Paket",
+    functional: "Tambah Paket",
   };
 
   return (
-    <main className="min-h-screen flex flex-col md:flex-row bg-gradient-to-br from-white to-blue-100">
+    <main
+      className="min-h-screen flex flex-col md:flex-row relative"
+      style={{
+        background: `linear-gradient(135deg, ${colors.light}20 0%, #ffffff 35%, ${colors.base}20 100%)`,
+      }}
+    >
       <AdminMobileDrawer isOpen={isDrawerOpen} onClose={() => setDrawerOpen(false)} navItems={navItems} />
       <AdminTopbar onOpen={() => setDrawerOpen(true)} />
       <AdminSidebar navItems={navItems} />
-      <div className="flex-1 p-6">
-        <div className="flex justify-between items-center mb-10">
-          <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">Manajemen Kelas</h1>
-          <button
-            onClick={() => router.push("/admin/classes/form")}
-            className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-5 py-3 rounded-xl shadow-md hover:scale-105 transition-transform"
-          >
-            <Plus className="w-5 h-5" />
-            <span className="hidden sm:inline">Tambah Kelas</span>
-          </button>
+
+      <div className="flex-1 p-6 md:p-8">
+        {/* Header */}
+        <div
+          className="rounded-2xl px-5 py-4 shadow-md border mb-6"
+          style={{
+            background: `linear-gradient(90deg, ${colors.darker} 0%, ${colors.dark} 100%)`,
+            color: colors.textLight,
+            borderColor: colors.light,
+          }}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <h1 className="text-2xl md:text-3xl font-extrabold">Manajemen Kelas</h1>
+            <button
+              type="button"
+              onClick={handleAdd}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl shadow-md transition text-white hover:opacity-95"
+              style={{ background: colors.complementary }}
+              aria-label={AddButtonLabel[activeTab]}
+              title={AddButtonLabel[activeTab]}
+            >
+              <Plus className="w-5 h-5" />
+              <span className="hidden sm:inline">{AddButtonLabel[activeTab]}</span>
+            </button>
+          </div>
+          <p className="opacity-90 mt-1 text-sm md:text-base">
+            Kelola Studio Class, Special Class, Paket Bundling, dan Functional sesuai kebutuhan operasional.
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {loading
-            ? Array.from({ length: 3 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="rounded-xl p-6 bg-gray-200 animate-pulse h-48 shadow-inner"
-                ></div>
-              ))
-            : classes.map((cls, index) => (
-                <motion.div
-                  key={cls.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.4, delay: index * 0.1 }}
-                  className="rounded-2xl p-6 bg-white border border-gray-200 shadow-md hover:shadow-xl transition-all group relative overflow-hidden"
-                >
-                  <div className="absolute -top-4 -right-4 w-24 h-24 bg-blue-100 rounded-full blur-xl opacity-20"></div>
-                  <h2 className="text-xl font-semibold text-gray-800 mb-1 group-hover:text-blue-700 transition">
-                    {cls.className}
-                  </h2>
-                  <p className="text-sm text-gray-600">Coach: <span className="font-medium text-gray-800">{cls.coach}</span></p>
-                  <p className="text-sm text-gray-600">{cls.date} | {cls.time}</p>
-                  <p className="text-sm text-gray-600">Slots: {cls.slots}</p>
-                  <p className="text-sm text-gray-500 italic">Tipe: {cls.type}</p>
-                  <div className="flex justify-end gap-2 mt-4">
-                    <button
-                      onClick={() => router.push(`/admin/classes/form?id=${cls.id}`)}
-                      className="p-2 bg-gradient-to-r from-yellow-400 to-yellow-500 text-white rounded-full hover:scale-110 transition"
-                      aria-label="Edit"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(cls.id)}
-                      className="p-2 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-full hover:scale-110 transition"
-                      aria-label="Delete"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </motion.div>
-              ))}
+        {/* Tabs */}
+        <div
+          className="sticky top-0 z-10 -mt-2 mb-6 pb-2 backdrop-blur supports-[backdrop-filter]:bg-white/70"
+          style={{ borderBottom: `1px solid ${colors.light}` }}
+        >
+          <div className="flex flex-wrap gap-2">
+            <TabButton
+              active={activeTab === "class"}
+              onClick={() => setActiveTab("class")}
+              label="Studio Class"
+              activeColor={colors.base}
+              textColor={colors.text}
+            />
+            <TabButton
+              active={activeTab === "special"}
+              onClick={() => setActiveTab("special")}
+              label="Special Class"
+              activeColor={colors.accent}
+              textColor={colors.text}
+            />
+            <TabButton
+              active={activeTab === "bundling"}
+              onClick={() => setActiveTab("bundling")}
+              label="Paket Bundling"
+              activeColor={colors.complementary}
+              textColor={colors.text}
+            />
+            <TabButton
+              active={activeTab === "functional"}
+              onClick={() => setActiveTab("functional")}
+              label="Functional"
+              activeColor={colors.darker}
+              textColor={colors.text}
+              darkText
+            />
+          </div>
         </div>
 
-        <div className="p-6">
-      <div className="flex gap-4 mb-4">
-        <button
-          onClick={() => setActiveTab("reguler")}
-          className={`px-4 py-2 rounded ${activeTab === "reguler" ? "bg-blue-600 text-white" : "bg-gray-200"}`}
-        >
-          Reguler
-        </button>
-        <button
-          onClick={() => setActiveTab("bundling")}
-          className={`px-4 py-2 rounded ${activeTab === "bundling" ? "bg-blue-600 text-white" : "bg-gray-200"}`}
-        >
-          Paket Bundling
-        </button>
-      </div>
-
-      {activeTab === "reguler" && <RegulerTab />}
-      {activeTab === "bundling" && <BundlingTab />}
-    </div>
+        {/* Content */}
+        <section aria-live="polite">
+          {activeTab === "class" && <RegulerTab />}
+          {activeTab === "special" && <SpecialTab />}
+          {activeTab === "bundling" && <BundlingTab />}
+          {activeTab === "functional" && <FunctionalTab />}
+        </section>
       </div>
     </main>
+  );
+}
+
+/* ================== Components ================== */
+
+function TabButton({
+  active,
+  onClick,
+  label,
+  activeColor,
+  textColor,
+  darkText = false,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  activeColor: string;
+  textColor: string;
+  darkText?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={[
+        "px-4 py-2 rounded-full font-semibold shadow transition-all duration-150 outline-none",
+        "focus-visible:ring-2",
+        active ? "scale-[1.02]" : "hover:scale-[1.01]",
+      ].join(" ")}
+      style={{
+        background: active ? activeColor : "#ffffff",
+        color: active ? (darkText ? colors.textLight : "#ffffff") : textColor,
+        border: `1px solid ${active ? activeColor : colors.light}`,
+      }}
+    >
+      {label}
+    </button>
   );
 }

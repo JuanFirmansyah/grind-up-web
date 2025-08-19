@@ -6,45 +6,26 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import {
-  Calendar,
-  Clock,
-  UserRound,
-  Boxes,
-  Type as TypeIcon,
-  Sparkles,
-  Signal,
-  FileText,
-  Timer,
-  Flame,
-  ImagePlus,
-  ArrowLeft,
-  Save,
-  CheckCircle2,
-  XCircle
+  Calendar, Clock, UserRound, Boxes,
+  Type as TypeIcon, Sparkles, Signal, FileText, Timer, Flame, ImagePlus,
+  ArrowLeft, Save, CheckCircle2, XCircle, ShieldCheck
 } from "lucide-react";
 
 import { signOut } from "firebase/auth";
 import { auth, db, storage } from "@/lib/firebase";
 import {
-  collection,
-  addDoc,
-  doc,
-  getDoc,
-  updateDoc,
-  query,
-  where,
-  getDocs,
-  type CollectionReference
+  collection, addDoc, doc, getDoc, updateDoc, query, where, getDocs, type CollectionReference
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
-// Layout components dari Grind Up App 10
 import { AdminTopbar } from "@/components/AdminTopbar";
 import { AdminSidebar } from "@/components/AdminSidebar";
 import { AdminMobileDrawer } from "@/components/AdminMobileDrawer";
 
 /* ====================== Types ====================== */
 type Coach = { id: string; name: string; email: string };
+type Tag = "regular" | "functional" | "special";
+type AccessMode = "by_tags" | "whitelist";
 
 type FormState = {
   className: string;
@@ -52,38 +33,47 @@ type FormState = {
   date: string;
   time: string;
   coach: string;
-  slots: string; // string untuk kontrol input, parse saat submit
-  type: "regular" | "special";
+  slots: string;
   description: string;
   duration: string;
   level: "Beginner" | "Intermediate" | "Advanced";
   calorieBurn: string;
   imageUrl: string;
+
+  // NEW:
+  tags: Tag[];
+  accessMode: AccessMode;
+  allowedPackageIds: string[];
+  allowDropIn: boolean;
+  dropInPrice: string;
 };
 
 type ClassDoc = {
   className: string;
-  date: string; // YYYY-MM-DD
-  time: string; // HH:mm
+  date: string;  // YYYY-MM-DD
+  time: string;  // HH:mm
   coach: string;
   slots: number;
-  type: "regular" | "special";
   description: string;
   duration: number; // menit
   level: "Beginner" | "Intermediate" | "Advanced";
   calorieBurn: number | null;
   imageUrl: string;
+
+  // NEW:
+  tags: Tag[];
+  accessMode: AccessMode;
+  allowedPackageIds?: string[];
+  allowDropIn?: boolean;
+  dropInPrice?: number | null;
+
+  // Counter:
+  bookedCount?: number;
 };
 
-const CLASS_NAMES = [
-  "Yoga",
-  "Zumba",
-  "Aerobik",
-  "Pilates",
-  "Poundfit",
-  "Functional",
-  "Lainnya"
-] as const;
+type PackageLite = { id: string; name: string };
+
+const CLASS_NAMES = ["Yoga", "Zumba", "Aerobik", "Pilates", "Poundfit", "Functional", "Lainnya"] as const;
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/admin/dashboard" },
@@ -108,9 +98,9 @@ export default function ClassForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const classId = searchParams.get("id");
-  const typeParam = searchParams.get("type");
 
   const [coaches, setCoaches] = useState<Coach[]>([]);
+  const [packages, setPackages] = useState<PackageLite[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageError, setImageError] = useState("");
@@ -118,11 +108,9 @@ export default function ClassForm() {
   const [initialLoading, setInitialLoading] = useState(Boolean(classId));
   const [notice, setNotice] = useState<{ kind: "success" | "error"; text: string } | null>(null);
 
-  // mobile drawer state + handlers (untuk memenuhi props)
   const [mobileOpen, setMobileOpen] = useState(false);
   const openMobile = () => setMobileOpen(true);
   const closeMobile = () => setMobileOpen(false);
-
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState<FormState>({
@@ -132,29 +120,26 @@ export default function ClassForm() {
     time: "",
     coach: "",
     slots: "",
-    type: "regular",
     description: "",
     duration: "",
     level: "Beginner",
     calorieBurn: "",
-    imageUrl: ""
+    imageUrl: "",
+    // NEW:
+    tags: [],
+    accessMode: "by_tags",
+    allowedPackageIds: [],
+    allowDropIn: false,
+    dropInPrice: "",
   });
 
   const headerTitle = useMemo(() => (classId ? "Edit Kelas" : "Tambah Kelas"), [classId]);
-
-  // Koleksi classes yang bertipe kuat
   const classesCol = collection(db, "classes") as CollectionReference<ClassDoc>;
 
   /* ====================== Effects ====================== */
   useEffect(() => {
-    // preselect special jika ?type=special dan bukan edit
-    if (!classId && typeParam === "special") {
-      setForm((prev) => ({ ...prev, type: "special" }));
-    }
-  }, [classId, typeParam]);
-
-  useEffect(() => {
-    const fetchCoaches = async () => {
+    // coach list
+    (async () => {
       const q = query(collection(db, "users"), where("role", "==", "coach"));
       const snapshot = await getDocs(q);
       const data: Coach[] = snapshot.docs.map((d) => {
@@ -166,13 +151,22 @@ export default function ClassForm() {
         };
       });
       setCoaches(data);
-    };
-    void fetchCoaches();
+    })();
+
+    // packages for whitelist  (FIX: nama koleksi)
+    (async () => {
+      const ps = await getDocs(collection(db, "membership_packages"));
+      const arr: PackageLite[] = ps.docs.map((d) => ({ id: d.id, name: (d.data().name as string) || "-" }));
+      setPackages(arr);
+    })();
   }, []);
 
   useEffect(() => {
-    const fetchData = async () => {
-      if (!classId) return;
+    (async () => {
+      if (!classId) {
+        setInitialLoading(false);
+        return;
+      }
       try {
         const docRef = doc(classesCol, classId);
         const docSnap = await getDoc(docRef);
@@ -185,15 +179,17 @@ export default function ClassForm() {
             time: data.time || "",
             coach: data.coach || "",
             slots: String(data.slots ?? ""),
-            type: data.type || "regular",
             description: data.description || "",
             duration: String(data.duration ?? ""),
             level: data.level || "Beginner",
-            calorieBurn:
-              data.calorieBurn !== null && data.calorieBurn !== undefined
-                ? String(data.calorieBurn)
-                : "",
-            imageUrl: data.imageUrl || ""
+            calorieBurn: data.calorieBurn != null ? String(data.calorieBurn) : "",
+            imageUrl: data.imageUrl || "",
+            // NEW:
+            tags: data.tags ?? [],
+            accessMode: data.accessMode ?? "by_tags",
+            allowedPackageIds: data.allowedPackageIds ?? [],
+            allowDropIn: Boolean(data.allowDropIn),
+            dropInPrice: data.dropInPrice != null ? String(data.dropInPrice) : "",
           });
           setImagePreview(data.imageUrl || null);
         }
@@ -202,14 +198,11 @@ export default function ClassForm() {
       } finally {
         setInitialLoading(false);
       }
-    };
-    void fetchData();
+    })();
   }, [classId, classesCol]);
 
   /* ====================== Handlers ====================== */
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
-  ) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
   };
@@ -223,7 +216,6 @@ export default function ClassForm() {
     }));
   };
 
-  // Validasi gambar landscape
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setImageError("");
     const file = e.target.files?.[0] ?? null;
@@ -253,40 +245,43 @@ export default function ClassForm() {
     setLoading(true);
     setNotice(null);
 
-    const realClassName =
-      form.className === "Lainnya" ? form.customClassName.trim() : form.className;
-
+    const realClassName = form.className === "Lainnya" ? form.customClassName.trim() : form.className;
     const slotsNum = toInt(form.slots);
     const durationNum = toInt(form.duration);
-    const calorieNum = form.calorieBurn ? toInt(form.calorieBurn) : undefined;
+    const calorieNum = toInt(form.calorieBurn);
 
-    if (
-      !realClassName ||
-      !form.date ||
-      !form.time ||
-      !form.coach ||
-      Number.isNaN(slotsNum) ||
-      Number.isNaN(durationNum) ||
-      !form.level
-    ) {
-      setNotice({ kind: "error", text: "Semua field wajib diisi dengan benar." });
-      setLoading(false);
-      return;
+    // ==== VALIDASI WAJIB ISI ====
+    if (!realClassName) return fail("Nama kelas wajib diisi.");
+    if (!form.date) return fail("Tanggal wajib diisi.");
+    if (!form.time) return fail("Jam wajib diisi.");
+    if (!form.coach) return fail("Coach wajib dipilih.");
+    if (Number.isNaN(slotsNum) || slotsNum < 1) return fail("Kapasitas harus angka >= 1.");
+    if (!form.description.trim()) return fail("Deskripsi wajib diisi.");
+    if (Number.isNaN(durationNum) || durationNum < 1) return fail("Durasi harus angka >= 1.");
+    if (Number.isNaN(calorieNum) || calorieNum < 0) return fail("Kalori burn wajib angka (>= 0).");
+
+    // akses: pilih salah satu sesuai mode
+    if (form.accessMode === "by_tags" && form.tags.length === 0) {
+      return fail("Pilih minimal 1 Tag kelas.");
+    }
+    if (form.accessMode === "whitelist" && form.allowedPackageIds.length === 0) {
+      return fail("Pilih paket yang diizinkan (whitelist).");
     }
 
-    if (form.className === "Lainnya" && !form.customClassName.trim()) {
-      setNotice({ kind: "error", text: "Silakan isi nama kelas custom." });
-      setLoading(false);
-      return;
+    // drop-in: bila diizinkan, wajib > 0
+    if (form.allowDropIn) {
+      const price = Number(form.dropInPrice || 0);
+      if (!Number.isFinite(price) || price <= 0) {
+        return fail("Harga drop-in wajib diisi dan harus > 0.");
+      }
     }
 
-    if (imageFile && imageError) {
-      setNotice({ kind: "error", text: imageError });
-      setLoading(false);
-      return;
+    // gambar wajib ada (existing atau upload baru)
+    if (!imageFile && !form.imageUrl) {
+      return fail("Gambar kelas wajib diunggah (landscape).");
     }
 
-    // Upload image jika ada
+    // ==== Upload image jika ada file baru ====
     let uploadedImageUrl = form.imageUrl;
     if (imageFile) {
       try {
@@ -295,26 +290,28 @@ export default function ClassForm() {
         await uploadBytes(storageRef, imageFile);
         uploadedImageUrl = await getDownloadURL(storageRef);
       } catch {
-        setNotice({ kind: "error", text: "Gagal mengunggah gambar." });
-        setLoading(false);
-        return;
+        return fail("Gagal mengunggah gambar.");
       }
     }
 
-    // payload typed ke ClassDoc → kompatibel dengan Firestore UpdateData/SetData
     const payload: ClassDoc = {
       className: realClassName,
       date: form.date,
       time: form.time,
       coach: form.coach,
       slots: slotsNum,
-      type: form.type,
       description: form.description,
       duration: durationNum,
       level: form.level,
-      calorieBurn:
-        typeof calorieNum === "number" && !Number.isNaN(calorieNum) ? calorieNum : null,
-      imageUrl: uploadedImageUrl
+      calorieBurn: calorieNum,
+      imageUrl: uploadedImageUrl,
+      // NEW
+      tags: form.accessMode === "by_tags" ? form.tags : (form.tags.length ? form.tags : []),
+      accessMode: form.accessMode,
+      allowedPackageIds: form.accessMode === "whitelist" ? form.allowedPackageIds : [],
+      allowDropIn: form.allowDropIn,
+      dropInPrice: form.allowDropIn ? Number(form.dropInPrice) : null,
+      bookedCount: classId ? undefined : 0,
     };
 
     try {
@@ -324,9 +321,7 @@ export default function ClassForm() {
         await addDoc(classesCol, payload);
       }
       setNotice({ kind: "success", text: "Kelas berhasil disimpan." });
-      setTimeout(() => {
-        router.push("/admin/classes");
-      }, 600);
+      setTimeout(() => router.push("/admin/classes"), 600);
     } catch {
       setNotice({ kind: "error", text: "Gagal menyimpan kelas. Coba lagi." });
     } finally {
@@ -334,28 +329,19 @@ export default function ClassForm() {
     }
   };
 
-  /* ====================== UI Helpers ====================== */
-  const inputBase =
-    "w-full border border-gray-300 px-4 py-2 rounded-lg shadow-sm placeholder-gray-400 " +
-    BRAND.ring;
+  function fail(msg: string) {
+    setNotice({ kind: "error", text: msg });
+    setLoading(false);
+    return;
+  }
 
+  const inputBase = "w-full border border-gray-300 px-4 py-2 rounded-lg shadow-sm placeholder-gray-400 " + BRAND.ring;
   const labelBase = "block font-semibold mb-1 text-gray-700 flex items-center gap-2";
 
-  function Field({
-    icon,
-    label,
-    children
-  }: {
-    icon: React.ReactNode;
-    label: string;
-    children: React.ReactNode;
-  }) {
+  function Field({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode; }) {
     return (
       <div>
-        <label className={labelBase}>
-          {icon}
-          <span>{label}</span>
-        </label>
+        <label className={labelBase}>{icon}<span>{label}</span></label>
         {children}
       </div>
     );
@@ -366,65 +352,30 @@ export default function ClassForm() {
     router.push("/login");
   };
 
-  /* ====================== Render ====================== */
   return (
     <div className={`min-h-screen ${BRAND.bg}`}>
-      {/* Topbar & responsive nav */}
       <AdminTopbar onOpen={openMobile} showLogout onLogout={handleLogout} />
       <AdminMobileDrawer isOpen={mobileOpen} navItems={NAV_ITEMS} onClose={closeMobile} />
       <div className="flex">
         <AdminSidebar navItems={NAV_ITEMS} showLogout onLogout={handleLogout} />
 
         <main className="flex-1 p-4 sm:p-6 md:p-10">
-          {/* Header */}
           <div className="mb-6 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={() => router.back()}
-              className="inline-flex items-center gap-2 text-sm text-slate-700 hover:text-black transition-colors"
-              aria-label="Kembali"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Kembali
+            <button type="button" onClick={() => router.back()} className="inline-flex items-center gap-2 text-sm text-slate-700 hover:text-black transition-colors" aria-label="Kembali">
+              <ArrowLeft className="h-4 w-4" /> Kembali
             </button>
             <h1 className="text-xl sm:text-2xl font-bold text-slate-800">{headerTitle}</h1>
           </div>
 
-          {/* Notice */}
           {notice && (
-            <div
-              role="status"
-              className={`mb-4 flex items-start gap-3 rounded-xl p-3 ${
-                notice.kind === "success"
-                  ? "bg-green-50 text-green-700 border border-green-200"
-                  : "bg-red-50 text-red-700 border border-red-200"
-              }`}
-            >
-              {notice.kind === "success" ? (
-                <CheckCircle2 className="mt-0.5 h-5 w-5" />
-              ) : (
-                <XCircle className="mt-0.5 h-5 w-5" />
-              )}
+            <div role="status" className={`mb-4 flex items-start gap-3 rounded-xl p-3 ${notice.kind === "success" ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-700 border border-red-200"}`}>
+              {notice.kind === "success" ? <CheckCircle2 className="mt-0.5 h-5 w-5" /> : <XCircle className="mt-0.5 h-5 w-5" />}
               <div className="flex-1 text-sm">{notice.text}</div>
-              <button
-                type="button"
-                onClick={() => setNotice(null)}
-                className="ml-2 text-xs underline decoration-dotted"
-                aria-label="Tutup notifikasi"
-              >
-                Tutup
-              </button>
+              <button type="button" onClick={() => setNotice(null)} className="ml-2 text-xs underline decoration-dotted" aria-label="Tutup notifikasi">Tutup</button>
             </div>
           )}
 
-          {/* Card */}
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
-            className={`max-w-4xl mx-auto ${BRAND.card} p-5 sm:p-8`}
-          >
-            {/* Skeleton saat preloading edit */}
+          <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className={`max-w-4xl mx-auto ${BRAND.card} p-5 sm:p-8`}>
             {initialLoading ? (
               <div className="animate-pulse space-y-4">
                 <div className="h-5 w-40 rounded bg-slate-200" />
@@ -439,221 +390,154 @@ export default function ClassForm() {
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Kelas & custom */}
+                {/* Nama/Jenis Kelas */}
                 <div className="md:col-span-2">
-                  <label className={labelBase}>
-                    <TypeIcon className="h-5 w-5 text-slate-600" />
-                    <span>Nama/Jenis Kelas</span>
-                  </label>
-                  <select
-                    name="className"
-                    value={form.className}
-                    onChange={handleClassNameChange}
-                    required
-                    className={inputBase}
-                    aria-label="Pilih kelas"
-                  >
+                  <label className={labelBase}><TypeIcon className="h-5 w-5 text-slate-600" /><span>Nama/Jenis Kelas</span></label>
+                  <select name="className" value={form.className} onChange={handleClassNameChange} required className={inputBase} aria-label="Pilih kelas">
                     <option value="">Pilih Kelas</option>
-                    {CLASS_NAMES.map((name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    ))}
+                    {CLASS_NAMES.map((name) => <option key={name} value={name}>{name}</option>)}
                   </select>
                   {form.className === "Lainnya" && (
-                    <input
-                      type="text"
-                      name="customClassName"
-                      placeholder="Nama kelas custom…"
-                      value={form.customClassName}
-                      onChange={(e) =>
-                        setForm((prev) => ({ ...prev, customClassName: e.target.value }))
-                      }
-                      className={`${inputBase} mt-2`}
-                      required
-                      aria-label="Nama kelas custom"
-                    />
+                    <input type="text" name="customClassName" placeholder="Nama kelas custom…" value={form.customClassName} onChange={(e) => setForm((prev) => ({ ...prev, customClassName: e.target.value }))} className={`${inputBase} mt-2`} required aria-label="Nama kelas custom" />
                   )}
                 </div>
 
                 {/* Tanggal, Jam */}
                 <Field icon={<Calendar className="h-5 w-5 text-slate-600" />} label="Tanggal">
-                  <input
-                    type="date"
-                    name="date"
-                    value={form.date}
-                    onChange={handleChange}
-                    required
-                    className={inputBase}
-                  />
+                  <input type="date" name="date" value={form.date} onChange={handleChange} required className={inputBase} />
                 </Field>
-
                 <Field icon={<Clock className="h-5 w-5 text-slate-600" />} label="Jam">
-                  <input
-                    type="time"
-                    name="time"
-                    value={form.time}
-                    onChange={handleChange}
-                    required
-                    className={inputBase}
-                  />
+                  <input type="time" name="time" value={form.time} onChange={handleChange} required className={inputBase} />
                 </Field>
 
                 {/* Coach, Slot */}
                 <Field icon={<UserRound className="h-5 w-5 text-slate-600" />} label="Coach">
-                  <select
-                    name="coach"
-                    value={form.coach}
-                    onChange={handleChange}
-                    required
-                    className={inputBase}
-                    aria-label="Pilih coach"
-                  >
+                  <select name="coach" value={form.coach} onChange={handleChange} required className={inputBase} aria-label="Pilih coach">
                     <option value="">Pilih Coach</option>
-                    {coaches.map((c) => (
-                      <option key={c.id} value={c.name}>
-                        {c.name}
-                      </option>
-                    ))}
+                    {coaches.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
                   </select>
                 </Field>
-
                 <Field icon={<Boxes className="h-5 w-5 text-slate-600" />} label="Kapasitas Slot">
-                  <input
-                    type="number"
-                    name="slots"
-                    value={form.slots}
-                    onChange={handleChange}
-                    inputMode="numeric"
-                    min={1}
-                    className={inputBase}
-                    placeholder="cth: 20"
-                  />
+                  <input type="number" name="slots" value={form.slots} onChange={handleChange} inputMode="numeric" min={1} className={inputBase} placeholder="cth: 20" required />
                 </Field>
 
-                {/* Tipe, Level */}
-                <Field icon={<Sparkles className="h-5 w-5 text-slate-600" />} label="Tipe Kelas">
-                  <select
-                    name="type"
-                    value={form.type}
-                    onChange={handleChange}
-                    className={inputBase}
-                    aria-label="Pilih tipe kelas"
-                  >
-                    <option value="regular">Reguler</option>
-                    <option value="special">Special Class</option>
-                  </select>
-                </Field>
-
+                {/* Level, Deskripsi */}
                 <Field icon={<Signal className="h-5 w-5 text-slate-600" />} label="Level">
-                  <select
-                    name="level"
-                    value={form.level}
-                    onChange={handleChange}
-                    className={inputBase}
-                    aria-label="Pilih level"
-                  >
+                  <select name="level" value={form.level} onChange={handleChange} className={inputBase} aria-label="Pilih level" required>
                     <option value="Beginner">Beginner</option>
                     <option value="Intermediate">Intermediate</option>
                     <option value="Advanced">Advanced</option>
                   </select>
                 </Field>
-
-                {/* Deskripsi */}
                 <div className="md:col-span-2">
-                  <label className={labelBase}>
-                    <FileText className="h-5 w-5 text-slate-600" />
-                    <span>Deskripsi</span>
-                  </label>
-                  <textarea
-                    name="description"
-                    value={form.description}
-                    onChange={handleChange}
-                    rows={4}
-                    className={inputBase}
-                    placeholder="Deskripsi singkat kelas…"
-                  />
+                  <label className={labelBase}><FileText className="h-5 w-5 text-slate-600" /><span>Deskripsi</span></label>
+                  <textarea name="description" value={form.description} onChange={handleChange} rows={4} className={inputBase} placeholder="Deskripsi singkat kelas…" required />
                 </div>
 
                 {/* Durasi, Kalori */}
                 <Field icon={<Timer className="h-5 w-5 text-slate-600" />} label="Durasi (menit)">
-                  <input
-                    type="number"
-                    name="duration"
-                    value={form.duration}
-                    onChange={handleChange}
-                    inputMode="numeric"
-                    min={1}
-                    className={inputBase}
-                    placeholder="cth: 60"
-                  />
+                  <input type="number" name="duration" value={form.duration} onChange={handleChange} inputMode="numeric" min={1} className={inputBase} placeholder="cth: 60" required />
+                </Field>
+                <Field icon={<Flame className="h-5 w-5 text-slate-600" />} label="Kalori Burn">
+                  <input type="number" name="calorieBurn" value={form.calorieBurn} onChange={handleChange} inputMode="numeric" min={0} className={inputBase} placeholder="cth: 300" required />
                 </Field>
 
-                <Field icon={<Flame className="h-5 w-5 text-slate-600" />} label="Kalori Burn">
-                  <input
-                    type="number"
-                    name="calorieBurn"
-                    value={form.calorieBurn}
-                    onChange={handleChange}
-                    inputMode="numeric"
-                    min={0}
-                    className={inputBase}
-                    placeholder="opsional, cth: 300"
-                  />
-                </Field>
+                {/* === NEW: TAGS === */}
+                <div className="md:col-span-2">
+                  <label className={labelBase}><Sparkles className="h-5 w-5 text-slate-600" /><span>Tag Kelas</span></label>
+                  <div className="flex gap-3 flex-wrap">
+                    {(["regular","functional","special"] as Tag[]).map((t) => (
+                      <label key={t} className="flex items-center gap-2 px-3 py-1 rounded border bg-gray-50 shadow-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={form.tags.includes(t)}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setForm((prev) => ({
+                              ...prev,
+                              tags: checked ? [...prev.tags, t] : prev.tags.filter((x) => x !== t),
+                            }));
+                          }}
+                          className="accent-green-600"
+                        />
+                        <span className="capitalize">{t}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">* Wajib pilih minimal 1 TAG jika mode akses “By Tags”.</p>
+                </div>
+
+                {/* === NEW: Access Mode === */}
+                <div className="md:col-span-2">
+                  <label className={labelBase}><ShieldCheck className="h-5 w-5 text-slate-600" /><span>Mode Akses</span></label>
+                  <div className="flex gap-6">
+                    <label className="flex items-center gap-2">
+                      <input type="radio" name="accessMode" checked={form.accessMode === "by_tags"} onChange={() => setForm((p) => ({ ...p, accessMode: "by_tags" }))} />
+                      <span>By Tags (Direkomendasikan)</span>
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input type="radio" name="accessMode" checked={form.accessMode === "whitelist"} onChange={() => setForm((p) => ({ ...p, accessMode: "whitelist" }))} />
+                      <span>Whitelist Paket</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* === NEW: Whitelist Paket === */}
+                {form.accessMode === "whitelist" && (
+                  <div className="md:col-span-2">
+                    <label className={labelBase}><TypeIcon className="h-5 w-5 text-slate-600" /><span>Paket yang Diizinkan</span></label>
+                    <select multiple className={inputBase} value={form.allowedPackageIds} onChange={(e) => {
+                      const vals = Array.from(e.target.selectedOptions).map((o) => o.value);
+                      setForm((prev) => ({ ...prev, allowedPackageIds: vals }));
+                    }} required>
+                      {packages.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">Tahan CTRL/⌘ untuk pilih banyak.</p>
+                  </div>
+                )}
+
+                {/* === NEW: Drop-In (Visit) === */}
+                <div className="md:col-span-2">
+                  <label className={labelBase}><Flame className="h-5 w-5 text-slate-600" /><span>Drop-In (Bayar per Kelas)</span></label>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" checked={form.allowDropIn} onChange={(e) => setForm((p) => ({ ...p, allowDropIn: e.target.checked }))} />
+                      <span>Izinkan</span>
+                    </label>
+                    {form.allowDropIn && (
+                      <input
+                        type="number"
+                        min={1}
+                        placeholder="Harga drop-in (Rp)"
+                        className={inputBase}
+                        value={form.dropInPrice}
+                        onChange={(e) => setForm((p) => ({ ...p, dropInPrice: e.target.value }))}
+                        required
+                      />
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    * Member dengan paket yang meng‑include TAG/whitelist kelas TIDAK bayar lagi. Drop‑in hanya untuk non‑eligible.
+                  </p>
+                </div>
 
                 {/* Upload Gambar */}
                 <div className="md:col-span-2">
-                  <label className={labelBase}>
-                    <ImagePlus className="h-5 w-5 text-slate-600" />
-                    <span>Upload Gambar (wajib landscape)</span>
-                  </label>
-                  <input
-                    ref={imageInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageChange}
-                    className="w-full text-sm"
-                    aria-label="Unggah gambar kelas"
-                  />
+                  <label className={labelBase}><ImagePlus className="h-5 w-5 text-slate-600" /><span>Upload Gambar (wajib landscape)</span></label>
+                  <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImageChange} className="w-full text-sm" aria-label="Unggah gambar kelas" />
                   {imageError && <div className="text-red-600 text-xs mt-1">{imageError}</div>}
-                  {imagePreview && (
+                  {(imagePreview || form.imageUrl) && (
                     <div className="mt-3">
-                      <Image
-                        src={imagePreview}
-                        alt="Preview"
-                        width={700}
-                        height={260}
-                        className="rounded-xl object-cover ring-1 ring-slate-200"
-                        unoptimized
-                        priority
-                      />
+                      <Image src={imagePreview || form.imageUrl} alt="Preview" width={700} height={260} className="rounded-xl object-cover ring-1 ring-slate-200" unoptimized priority />
                     </div>
                   )}
-                  <p className="text-xs text-gray-500 mt-1">
-                    * Gambar harus landscape (width &gt; height).
-                  </p>
+                  <p className="text-xs text-gray-500 mt-1">* Gambar wajib ada dan harus landscape (width &gt; height).</p>
                 </div>
 
                 {/* Actions */}
                 <div className="md:col-span-2">
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full inline-flex justify-center items-center gap-2 bg-[#97CCDD] text-slate-900 font-semibold py-3 rounded-xl shadow hover:opacity-90 transition disabled:opacity-60"
-                    aria-busy={loading}
-                  >
-                    {loading ? (
-                      <>
-                        <Save className="h-5 w-5 animate-spin" />
-                        Menyimpan…
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="h-5 w-5" />
-                        Simpan Kelas
-                      </>
-                    )}
+                  <button type="submit" disabled={loading} className="w-full inline-flex justify-center items-center gap-2 bg-[#97CCDD] text-slate-900 font-semibold py-3 rounded-xl shadow hover:opacity-90 transition disabled:opacity-60" aria-busy={loading}>
+                    {loading ? (<><Save className="h-5 w-5 animate-spin" />Menyimpan…</>) : (<><CheckCircle2 className="h-5 w-5" />Simpan Kelas</>)}
                   </button>
                 </div>
               </form>

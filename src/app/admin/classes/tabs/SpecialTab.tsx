@@ -2,11 +2,30 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
+import {
+  collection,
+  getDocs,
+  type DocumentData,
+  type QuerySnapshot,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Pencil, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+
+/* ====== Colors (konsisten) ====== */
+const colors = {
+  base: "#97CCDD",
+  light: "#C1E3ED",
+  dark: "#6FB5CC",
+  darker: "#4A9EBB",
+  complementary: "#DDC497",
+  accent: "#DD97CC",
+  text: "#2D3748",
+  textLight: "#F8FAFC",
+};
+
+type Tag = "regular" | "functional" | "special";
 
 interface GymClass {
   id: string;
@@ -15,7 +34,8 @@ interface GymClass {
   time: string;
   coach: string;
   slots: number;
-  type: string;
+  type: "regular" | "special";
+  tag?: Tag;
 }
 
 export default function SpecialTab() {
@@ -23,22 +43,35 @@ export default function SpecialTab() {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  const fetchClasses = async () => {
+  const fetchClasses = async (): Promise<void> => {
     setLoading(true);
-    const snapshot = await getDocs(collection(db, "classes"));
+    const snapshot: QuerySnapshot<DocumentData> = await getDocs(collection(db, "classes"));
     const data: GymClass[] = [];
+
     snapshot.forEach((docSnap) => {
-      const d = docSnap.data();
-      if (d.type === "special") {
-        data.push({ id: docSnap.id, ...d } as GymClass);
-      }
+      const raw = docSnap.data() as DocumentData;
+
+      // mapping eksplisit agar aman & tanpa 'any'
+      const item: GymClass = {
+        id: docSnap.id,
+        className: typeof raw.className === "string" ? raw.className : "",
+        date: typeof raw.date === "string" ? raw.date : "",
+        time: typeof raw.time === "string" ? raw.time : "",
+        coach: typeof raw.coach === "string" ? raw.coach : "",
+        slots: typeof raw.slots === "number" ? raw.slots : 0,
+        type: (typeof raw.type === "string" ? raw.type : "regular") as GymClass["type"],
+        tag: (typeof raw.tag === "string" ? (raw.tag as Tag) : undefined),
+      };
+
+      if (item.type === "special") data.push(item);
     });
+
     setClasses(data);
     setLoading(false);
   };
 
   useEffect(() => {
-    fetchClasses();
+    void fetchClasses();
   }, []);
 
   return (
@@ -52,27 +85,46 @@ export default function SpecialTab() {
               key={cls.id}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: index * 0.1 }}
+              transition={{ duration: 0.4, delay: index * 0.06 }}
               className="rounded-2xl p-6 bg-white border border-gray-200 shadow-md hover:shadow-xl transition-all group"
             >
-              <h2 className="text-xl font-semibold text-gray-800 mb-1 group-hover:text-pink-700 transition">
-                {cls.className}
-              </h2>
-              <p className="text-sm text-gray-600">Coach: <span className="font-medium text-gray-800">{cls.coach}</span></p>
-              <p className="text-sm text-gray-600">{cls.date} | {cls.time}</p>
+              <div className="flex items-start justify-between gap-3">
+                <h2 className="text-xl font-semibold text-gray-800 mb-1 group-hover:text-pink-700 transition">
+                  {cls.className}
+                </h2>
+                {cls.tag && (
+                  <span
+                    className="px-2 py-0.5 text-xs rounded-full"
+                    style={{ background: `${colors.accent}25`, color: "#a21caf" }}
+                  >
+                    {cls.tag}
+                  </span>
+                )}
+              </div>
+
+              <p className="text-sm text-gray-600">
+                Coach: <span className="font-medium text-gray-800">{cls.coach}</span>
+              </p>
+              <p className="text-sm text-gray-600">
+                {cls.date} | {cls.time}
+              </p>
               <p className="text-sm text-gray-600">Slots: {cls.slots}</p>
+
               <div className="flex justify-end gap-2 mt-4">
                 <button
                   onClick={() => router.push(`/admin/classes/form?id=${cls.id}`)}
                   className="p-2 bg-pink-500 text-white rounded-full hover:scale-110 transition"
+                  title="Edit"
                 >
                   <Pencil className="w-4 h-4" />
                 </button>
                 <button
                   className="p-2 bg-red-500 text-white rounded-full hover:scale-110 transition"
+                  title="Hapus"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
+                {/* Absensi dihapus dari tab Special, akan dipindah ke Dashboard */}
               </div>
             </motion.div>
           ))}

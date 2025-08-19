@@ -1,5 +1,4 @@
 // src/app/admin/packages/page.tsx
-
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -18,7 +17,6 @@ import { AdminTopbar } from "@/components/AdminTopbar";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Pencil, Trash2, X, SortAsc, Search } from "lucide-react";
 
-/* ================== Color Palette (konsisten) ================== */
 const colors = {
   base: "#97CCDD",
   light: "#C1E3ED",
@@ -30,7 +28,21 @@ const colors = {
   textLight: "#F8FAFC",
 };
 
-// Daftar fasilitas umum di gym (bisa diubah)
+type Tag = "regular" | "functional" | "special";
+
+// ⬇️ Tambah "Harian" di union type durasi
+export interface MembershipPackage {
+  id?: string;
+  name: string;
+  price: number;
+  duration: "Harian" | "Bulanan" | "Tahunan";
+  description: string;
+  facilities: string[];
+  classAccessRules: { tag: Tag; sessionsPerCycle: number | null }[];
+}
+
+type SortMode = "name_asc" | "price_asc";
+
 const facilityList = [
   "Akses Gym",
   "Locker",
@@ -39,102 +51,82 @@ const facilityList = [
   "Free Wifi",
   "Minuman Gratis",
 ];
-
-export interface MembershipPackage {
-  id?: string;
-  name: string;
-  price: number;
-  duration: string; // "Bulanan" | "Tahunan"
-  description: string;
-  facilities: string[];
-  classAccess: { classId: string; className: string; sessionLimit: string }[];
-}
-
-type SortMode = "name_asc" | "price_asc";
-type PackagePayload = Omit<MembershipPackage, "id">;
+const TAGS: Tag[] = ["regular", "functional", "special"];
 
 export default function MembershipPackagesPage() {
   const [packages, setPackages] = useState<MembershipPackage[]>([]);
-  const [classes, setClasses] = useState<{ id: string; className: string }[]>(
-    []
-  );
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editData, setEditData] = useState<MembershipPackage | null>(null);
+  const [isDrawerOpen, setDrawerOpen] = useState(false);
+
+  const [search, setSearch] = useState("");
+  const [sortMode, setSortMode] = useState<SortMode>("name_asc");
+  const [formError, setFormError] = useState("");
+
+  // ⬇️ default duration sekarang "Bulanan" tapi type mencakup "Harian"
   const [form, setForm] = useState({
     name: "",
     price: "",
-    duration: "Bulanan",
+    duration: "Bulanan" as "Harian" | "Bulanan" | "Tahunan",
     description: "",
     facilities: [] as string[],
-    classAccess: [] as {
-      classId: string;
-      className: string;
-      sessionLimit: string;
-    }[],
+    classAccessRules: TAGS.map((tag) => ({
+      tag,
+      sessionsPerCycle: null as number | null,
+    })),
   });
-  const [formError, setFormError] = useState("");
-  const [isDrawerOpen, setDrawerOpen] = useState(false);
 
-  // enhancements
-  const [search, setSearch] = useState("");
-  const [sortMode, setSortMode] = useState<SortMode>("name_asc");
-
-  // Fetch all class data
   useEffect(() => {
-    void fetchPackages();
-    void fetchClasses();
+    (async () => {
+      setLoading(true);
+      const q = await getDocs(collection(db, "membership_packages"));
+      const arr: MembershipPackage[] = [];
+      q.forEach((d) =>
+        arr.push({ id: d.id, ...(d.data() as MembershipPackage) })
+      );
+      setPackages(arr);
+      setLoading(false);
+    })();
   }, []);
 
-  const fetchPackages = async () => {
-    setLoading(true);
-    const q = await getDocs(collection(db, "membership_packages"));
-    const arr: MembershipPackage[] = [];
-    q.forEach((d) => arr.push({ id: d.id, ...(d.data() as MembershipPackage) }));
-    setPackages(arr);
-    setLoading(false);
+  const formatRupiah = (value: string) => {
+    const cleaned = value.replace(/\D/g, "");
+    if (!cleaned) return "";
+    return cleaned.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   };
 
-  const fetchClasses = async () => {
-    const q = await getDocs(collection(db, "classes"));
-    const all = q.docs.map((d) => ({
-      id: d.id,
-      className: (d.data().type as string) || "Tanpa Nama",
-    }));
-    // unique by className
-    const unique: { id: string; className: string }[] = [];
-    const seenType = new Set<string>();
-    for (const c of all) {
-      if (!seenType.has(c.className)) {
-        unique.push(c);
-        seenType.add(c.className);
-      }
-    }
-    setClasses(unique);
-  };
-
-  // Modal open (untuk edit/tambah)
   const openModal = (data?: MembershipPackage) => {
-    setEditData(data || null);
-    setForm(
-      data
-        ? {
-            name: data.name,
-            price: String(data.price),
-            duration: data.duration || "Bulanan",
-            description: data.description,
-            facilities: data.facilities || [],
-            classAccess: data.classAccess || [],
-          }
-        : {
-            name: "",
-            price: "",
-            duration: "Bulanan",
-            description: "",
-            facilities: [],
-            classAccess: [],
-          }
-    );
+    setEditData(data ?? null);
+    if (data) {
+      setForm({
+        name: data.name,
+        price: String(data.price),
+        duration: data.duration,
+        description: data.description ?? "",
+        facilities: data.facilities ?? [],
+        classAccessRules:
+          TAGS.map((tag) => {
+            const found = data.classAccessRules?.find((r) => r.tag === tag);
+            return {
+              tag,
+              sessionsPerCycle:
+                typeof found?.sessionsPerCycle === "number"
+                  ? found.sessionsPerCycle
+                  : null,
+            };
+          }) ?? TAGS.map((tag) => ({ tag, sessionsPerCycle: null })),
+      });
+    } else {
+      setForm({
+        name: "",
+        price: "",
+        duration: "Bulanan",
+        description: "",
+        facilities: [],
+        classAccessRules: TAGS.map((tag) => ({ tag, sessionsPerCycle: null })),
+      });
+    }
     setFormError("");
     setModalOpen(true);
   };
@@ -142,18 +134,8 @@ export default function MembershipPackagesPage() {
   const closeModal = () => {
     setModalOpen(false);
     setEditData(null);
-    setForm({
-      name: "",
-      price: "",
-      duration: "Bulanan",
-      description: "",
-      facilities: [],
-      classAccess: [],
-    });
-    setFormError("");
   };
 
-  // Fasilitas
   const toggleFacility = (facility: string) => {
     setForm((prev) => ({
       ...prev,
@@ -163,91 +145,68 @@ export default function MembershipPackagesPage() {
     }));
   };
 
-  // Class access handler
-  const handleClassAccessChange = (classId: string, checked: boolean) => {
-    if (checked) {
-      const cls = classes.find((c) => c.id === classId);
-      setForm((prev) => ({
-        ...prev,
-        classAccess: [
-          ...prev.classAccess,
-          { classId, className: cls?.className || "", sessionLimit: "" },
-        ],
-      }));
-    } else {
-      setForm((prev) => ({
-        ...prev,
-        classAccess: prev.classAccess.filter((c) => c.classId !== classId),
-      }));
-    }
+  const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const cleaned = e.target.value.replace(/\D/g, "");
+    setForm((prev) => ({ ...prev, price: formatRupiah(cleaned) }));
   };
 
-  const handleSessionLimitChange = (classId: string, value: string) => {
+  // 🛠️ Perbaikan parsing "0": "" => null, "0" => 0
+  const setSessions = (tag: Tag, val: string) => {
     setForm((prev) => ({
       ...prev,
-      classAccess: prev.classAccess.map((c) =>
-        c.classId === classId ? { ...c, sessionLimit: value } : c
+      classAccessRules: prev.classAccessRules.map((r) =>
+        r.tag === tag
+          ? {
+              ...r,
+              sessionsPerCycle: val === "" ? null : Number(val),
+            }
+          : r
       ),
     }));
   };
 
-  // Harga UX rupiah
-  const formatRupiah = (value: string) => {
-    const cleaned = value.replace(/\D/g, "");
-    if (!cleaned) return "";
-    return cleaned.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-  };
-  const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = e.target.value;
-    value = value.replace(/\D/g, "");
-    setForm((prev) => ({ ...prev, price: formatRupiah(value) }));
-  };
-
-  // CRUD
-  const handleSubmit = async (e: React.FormEvent) => {
+  const savePackage = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError("");
     if (!form.name.trim() || !form.price.trim()) {
       setFormError("Nama dan harga wajib diisi!");
       return;
     }
-    if (Number.isNaN(Number(form.price.replace(/\./g, "")))) {
-      setFormError("Harga harus berupa angka.");
-      return;
+    const payload: Omit<MembershipPackage, "id"> = {
+      name: form.name.trim(),
+      price: Number(form.price.replace(/\./g, "")),
+      duration: form.duration, // "Harian" | "Bulanan" | "Tahunan"
+      description: form.description,
+      facilities: form.facilities,
+      classAccessRules: [...form.classAccessRules].sort((a, b) =>
+        a.tag.localeCompare(b.tag)
+      ),
+    };
+    if (editData?.id) {
+      await setDoc(doc(db, "membership_packages", editData.id), payload, {
+        merge: true,
+      });
+    } else {
+      await addDoc(collection(db, "membership_packages"), payload);
     }
-    try {
-      const payload: PackagePayload = {
-        name: form.name,
-        price: Number(form.price.replace(/\./g, "")),
-        duration: form.duration,
-        description: form.description,
-        facilities: form.facilities,
-        classAccess: form.classAccess,
-      };
-
-      if (editData?.id) {
-        // gunakan setDoc merge agar payload penuh aman untuk typing Firestore
-        await setDoc(doc(db, "membership_packages", editData.id), payload, {
-          merge: true,
-        });
-      } else {
-        await addDoc(collection(db, "membership_packages"), payload);
-      }
-      await fetchPackages();
-      closeModal();
-    } catch {
-      setFormError("Gagal menyimpan data.");
-    }
+    // refresh
+    const q = await getDocs(collection(db, "membership_packages"));
+    const arr: MembershipPackage[] = [];
+    q.forEach((d) => arr.push({ id: d.id, ...(d.data() as MembershipPackage) }));
+    setPackages(arr);
+    closeModal();
   };
 
-  const handleDelete = async (id: string) => {
-    // gunakan confirm tanpa eslint-disable directive
+  const handleDelete = async (id?: string) => {
+    if (!id) return;
     if (!window.confirm("Yakin ingin menghapus paket ini?")) return;
     await deleteDoc(doc(db, "membership_packages", id));
-    await fetchPackages();
+    const q = await getDocs(collection(db, "membership_packages"));
+    const arr: MembershipPackage[] = [];
+    q.forEach((d) => arr.push({ id: d.id, ...(d.data() as MembershipPackage) }));
+    setPackages(arr);
   };
 
-  /* ================== Filter & Sort ================== */
   const filteredSorted = useMemo(() => {
     const term = search.trim().toLowerCase();
     const base = packages.filter((p) => {
@@ -258,10 +217,7 @@ export default function MembershipPackagesPage() {
       );
     });
     const sorted = [...base].sort((a, b) => {
-      if (sortMode === "name_asc") {
-        return a.name.localeCompare(b.name, "id", { sensitivity: "base" });
-      }
-      // price_asc
+      if (sortMode === "name_asc") return a.name.localeCompare(b.name, "id");
       return (a.price ?? 0) - (b.price ?? 0);
     });
     return sorted;
@@ -331,8 +287,8 @@ export default function MembershipPackagesPage() {
               </button>
             </div>
             <p className="opacity-90 mt-1 text-sm md:text-base">
-              Paket-paket ini digunakan juga di aplikasi customer — pastikan
-              informatif & jelas.
+              Atur akses kelas berdasarkan <b>TAG</b>{" "}
+              (regular/functional/special) + kuota sesi/siklus.
             </p>
           </div>
         </motion.div>
@@ -382,8 +338,8 @@ export default function MembershipPackagesPage() {
                 <th className="p-4 text-left">Nama Paket</th>
                 <th className="p-4 text-left">Harga</th>
                 <th className="p-4 text-left">Durasi</th>
+                <th className="p-4 text-left">Akses (per TAG)</th>
                 <th className="p-4 text-left">Fasilitas</th>
-                <th className="p-4 text-left">Akses Kelas</th>
                 <th className="p-4 text-left">Deskripsi</th>
                 <th className="p-4 text-left">Aksi</th>
               </tr>
@@ -400,9 +356,9 @@ export default function MembershipPackagesPage() {
                   </tr>
                 ))
               ) : filteredSorted.length ? (
-                filteredSorted.map((pkg, idx) => (
+                filteredSorted.map((pkg) => (
                   <motion.tr
-                    key={pkg.id ?? `pkg-${idx}`}
+                    key={pkg.id}
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.25 }}
@@ -412,24 +368,31 @@ export default function MembershipPackagesPage() {
                     <td className="p-4 font-semibold" style={{ color: colors.text }}>
                       {pkg.name}
                     </td>
-
                     <td className="p-4 text-gray-700">
                       Rp {Number(pkg.price ?? 0).toLocaleString("id-ID")}
                     </td>
-
                     <td className="p-4">
                       <span
                         className="px-2 py-1 text-xs font-bold rounded-lg"
-                        style={{
-                          background:
-                            pkg.duration === "Tahunan" ? `${colors.accent}` : `${colors.base}`,
-                          color: colors.textLight,
-                        }}
+                        style={{ background: colors.base, color: colors.textLight }}
                       >
                         {pkg.duration}
                       </span>
                     </td>
-
+                    <td className="p-4 text-gray-700">
+                      <ul className="list-disc ml-4">
+                        {pkg.classAccessRules?.map((r) => (
+                          <li key={r.tag}>
+                            <span className="capitalize">{r.tag}</span>{" "}
+                            (
+                            {r.sessionsPerCycle === null
+                              ? "unlimited"
+                              : `${r.sessionsPerCycle} sesi/siklus`}
+                            )
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
                     <td className="p-4 text-gray-700">
                       {pkg.facilities?.length ? (
                         <div className="flex flex-wrap gap-2">
@@ -450,47 +413,28 @@ export default function MembershipPackagesPage() {
                         <span className="text-gray-400 italic">-</span>
                       )}
                     </td>
-
                     <td className="p-4 text-gray-700">
-                      {pkg.classAccess?.length ? (
-                        <ul className="list-disc ml-4">
-                          {pkg.classAccess.map((c) => (
-                            <li key={`${c.classId}`}>
-                              {c.className} ({c.sessionLimit || "∞"} sesi)
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
+                      {pkg.description || (
                         <span className="text-gray-400 italic">-</span>
                       )}
-                      <div className="text-xs text-gray-500 mt-1">
-                        Total kelas: {pkg.classAccess?.length ?? 0}
-                      </div>
                     </td>
-
-                    <td className="p-4 text-gray-700">
-                      {pkg.description || <span className="text-gray-400 italic">-</span>}
-                    </td>
-
                     <td className="p-4">
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex gap-2">
                         <button
                           type="button"
                           onClick={() => openModal(pkg)}
                           className="p-2 rounded-full text-white hover:scale-110 transition"
                           style={{ background: colors.complementary }}
-                          aria-label="Edit"
-                          title="Edit paket"
+                          title="Edit"
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
                         <button
                           type="button"
-                          onClick={() => pkg.id && void handleDelete(pkg.id)}
+                          onClick={() => handleDelete(pkg.id)}
                           className="p-2 rounded-full text-white hover:scale-110 transition"
                           style={{ background: "#ef4444" }}
-                          aria-label="Hapus"
-                          title="Hapus paket"
+                          title="Hapus"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -501,7 +445,7 @@ export default function MembershipPackagesPage() {
               ) : (
                 <tr>
                   <td className="p-6 text-center text-gray-500" colSpan={7}>
-                    Tidak ada paket yang cocok dengan pencarian.
+                    Tidak ada paket.
                   </td>
                 </tr>
               )}
@@ -510,7 +454,7 @@ export default function MembershipPackagesPage() {
         </div>
       </div>
 
-      {/* Modal Tambah/Edit Paket */}
+      {/* Modal */}
       <AnimatePresence>
         {modalOpen && (
           <motion.div
@@ -533,26 +477,27 @@ export default function MembershipPackagesPage() {
                 type="button"
                 onClick={closeModal}
                 className="absolute top-3 right-3 text-gray-400 hover:text-black"
-                aria-label="Tutup"
                 title="Tutup"
               >
                 <X className="w-5 h-5" />
               </button>
 
-              <h2 className="text-xl font-bold mb-4" style={{ color: colors.text }}>
+              <h2
+                className="text-xl font-bold mb-4"
+                style={{ color: colors.text }}
+              >
                 {editData ? "Edit Paket Membership" : "Tambah Paket Membership"}
               </h2>
 
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={savePackage} className="space-y-4">
                 <div>
-                  <label className="block mb-1 font-semibold" style={{ color: colors.text }}>
-                    Nama Paket
-                  </label>
+                  <label className="block mb-1 font-semibold">Nama Paket</label>
                   <input
                     type="text"
-                    name="name"
                     value={form.name}
-                    onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((p) => ({ ...p, name: e.target.value }))
+                    }
                     required
                     className="w-full border px-4 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2"
                     style={{ borderColor: colors.light }}
@@ -560,121 +505,123 @@ export default function MembershipPackagesPage() {
                 </div>
 
                 <div>
-                  <label className="block mb-1 font-semibold" style={{ color: colors.text }}>
+                  <label className="block mb-1 font-semibold">
                     Harga Paket (Rp)
                   </label>
                   <input
                     type="text"
-                    name="price"
                     value={form.price}
                     onChange={handlePriceChange}
                     required
-                    min={0}
+                    inputMode="numeric"
                     className="w-full border px-4 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2"
                     style={{ borderColor: colors.light }}
-                    placeholder="Contoh: 250000"
-                    inputMode="numeric"
+                    placeholder="cth: 250000"
                   />
                   <div className="text-xs text-gray-500 mt-1">
-                    Tampil sebagai: Rp{" "}
-                    {form.price ? Number(form.price.replace(/\./g, "")).toLocaleString("id-ID") : "0"}
+                    Tampil: Rp{" "}
+                    {form.price
+                      ? Number(form.price.replace(/\./g, "")).toLocaleString(
+                          "id-ID"
+                        )
+                      : "0"}
                   </div>
                 </div>
 
                 <div>
-                  <label className="block mb-1 font-semibold" style={{ color: colors.text }}>
-                    Durasi
-                  </label>
+                  <label className="block mb-1 font-semibold">Durasi</label>
                   <select
-                    name="duration"
                     value={form.duration}
-                    onChange={(e) => setForm((prev) => ({ ...prev, duration: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((p) => ({
+                        ...p,
+                        duration: e.target
+                          .value as "Harian" | "Bulanan" | "Tahunan",
+                      }))
+                    }
                     className="w-full border px-4 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2"
                     style={{ borderColor: colors.light }}
                   >
+                    {/* ⬇️ Tambahan Harian */}
+                    <option value="Harian">Harian (Visit)</option>
                     <option value="Bulanan">Bulanan</option>
                     <option value="Tahunan">Tahunan</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block mb-1 font-semibold" style={{ color: colors.text }}>
-                    Fasilitas
-                  </label>
+                  <label className="block mb-1 font-semibold">Fasilitas</label>
                   <div className="flex flex-wrap gap-2">
-                    {facilityList.map((facility) => (
+                    {facilityList.map((f) => (
                       <label
-                        key={facility}
+                        key={f}
                         className="flex items-center gap-2 px-3 py-1 rounded border bg-gray-50 shadow-sm cursor-pointer"
                         style={{ borderColor: colors.light }}
                       >
                         <input
                           type="checkbox"
-                          checked={form.facilities.includes(facility)}
-                          onChange={() => toggleFacility(facility)}
+                          checked={form.facilities.includes(f)}
+                          onChange={() => toggleFacility(f)}
                           className="accent-blue-600"
                         />
-                        <span>{facility}</span>
+                        <span>{f}</span>
                       </label>
                     ))}
                   </div>
                 </div>
 
                 <div>
-                  <label className="block mb-1 font-semibold" style={{ color: colors.text }}>
-                    Akses Kelas & Sesi
+                  <label className="block mb-1 font-semibold">
+                    Akses Kelas (per TAG)
                   </label>
-                  <div className="space-y-1">
-                    {classes.map((cls) => {
-                      const checked = form.classAccess.some((c) => c.classId === cls.id);
-                      const sessionLimit =
-                        form.classAccess.find((c) => c.classId === cls.id)?.sessionLimit || "";
+                  <div className="space-y-2">
+                    {TAGS.map((tag) => {
+                      const found =
+                        form.classAccessRules.find((r) => r.tag === tag)!;
                       return (
-                        <div key={cls.id} className="flex items-center gap-3">
-                          <label className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={(e) => handleClassAccessChange(cls.id, e.target.checked)}
-                              className="accent-green-600"
-                            />
-                            <span>{cls.className}</span>
-                          </label>
-                          {checked && (
-                            <input
-                              type="number"
-                              min={1}
-                              placeholder="Jml sesi/bulan (kosong = unlimited)"
-                              value={sessionLimit}
-                              onChange={(e) => handleSessionLimitChange(cls.id, e.target.value)}
-                              className="border px-2 py-1 rounded w-52"
-                              style={{ borderColor: colors.light }}
-                            />
-                          )}
+                        <div key={tag} className="flex items-center gap-3">
+                          <span className="capitalize w-28">{tag}</span>
+                          <input
+                            type="number"
+                            min={0}
+                            placeholder="Sesi/siklus (kosong = unlimited)"
+                            value={
+                              found.sessionsPerCycle === null
+                                ? ""
+                                : found.sessionsPerCycle
+                            }
+                            onChange={(e) => setSessions(tag, e.target.value)}
+                            className="border px-2 py-1 rounded w-64"
+                            style={{ borderColor: colors.light }}
+                          />
                         </div>
                       );
                     })}
                   </div>
                   <div className="text-xs text-gray-500 mt-1">
-                    * Centang kelas lalu isi jumlah sesi/bulan. Kosongkan sesi untuk unlimited.
+                    Kosongkan = unlimited. Nilai <b>0</b> disimpan sebagai{" "}
+                    <b>0 sesi</b>.
                   </div>
                 </div>
 
                 <div>
-                  <label className="block mb-1 font-semibold" style={{ color: colors.text }}>
+                  <label className="block mb-1 font-semibold">
                     Deskripsi Paket
                   </label>
                   <textarea
-                    name="description"
                     value={form.description}
-                    onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((p) => ({ ...p, description: e.target.value }))
+                    }
                     rows={3}
                     className="w-full border px-4 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2"
                     style={{ borderColor: colors.light }}
                   />
                 </div>
 
-                {formError && <div className="text-red-500 text-xs">{formError}</div>}
+                {formError && (
+                  <div className="text-red-500 text-xs">{formError}</div>
+                )}
 
                 <button
                   type="submit"

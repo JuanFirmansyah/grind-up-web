@@ -1,3 +1,4 @@
+// src/app/admin/members/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -31,8 +32,6 @@ import {
   TimerReset,
   FileText,
   Download,
-  Info,
-  Calculator,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
@@ -133,21 +132,10 @@ interface UserRaw {
   memberType?: string;
 }
 
-type Duration = "Harian" | "Bulanan" | "Tahunan";
-
 interface MembershipPackageDoc {
-  name: string;
-  price: number;
-  duration: Duration;
+  name?: string;
 }
-type PackageMap = Record<
-  string,
-  {
-    name: string;
-    price: number;
-    duration: Duration;
-  }
->;
+type PackageMap = Record<string, string>;
 
 /* ================== Component ================== */
 export default function AdminMembersPage() {
@@ -166,9 +154,6 @@ export default function AdminMembersPage() {
   const [onlyExpiringSoon, setOnlyExpiringSoon] = useState(false);
   const pageSize = 10;
 
-  // daftar paket untuk dropdown
-  const [packages, setPackages] = useState<Array<{ id: string } & MembershipPackageDoc>>([]);
-
   // State pembayaran
   const [showPayModal, setShowPayModal] = useState(false);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
@@ -180,38 +165,22 @@ export default function AdminMembersPage() {
   const [payFileError, setPayFileError] = useState<string>("");
   const [payNotes, setPayNotes] = useState<string>("");
 
-  // paket yang dipilih di modal
-  const [payPackageId, setPayPackageId] = useState<string>("");
-
   // Refs for QR export
   const qrCardRef = useRef<HTMLDivElement | null>(null);
   const [qrDownloading, setQrDownloading] = useState(false);
 
   const router = useRouter();
 
-  /* ========== Fetch package map & list ========== */
+  /* ========== Fetch package map ========== */
   useEffect(() => {
     const fetchPackages = async () => {
       const q = await getDocs(collection(db, "membership_packages"));
       const map: PackageMap = {};
-      const list: Array<{ id: string } & MembershipPackageDoc> = [];
       q.forEach((docSnap) => {
         const d = docSnap.data() as MembershipPackageDoc;
-        if (!d?.name) return;
-        map[docSnap.id] = {
-          name: d.name,
-          price: Number(d.price ?? 0),
-          duration: (d.duration as Duration) || "Bulanan",
-        };
-        list.push({
-          id: docSnap.id,
-          name: d.name,
-          price: Number(d.price ?? 0),
-          duration: (d.duration as Duration) || "Bulanan",
-        });
+        if (d?.name) map[docSnap.id] = d.name;
       });
       setPackageMap(map);
-      setPackages(list);
     };
     fetchPackages().catch(() => undefined);
   }, []);
@@ -237,7 +206,7 @@ export default function AdminMembersPage() {
           deleted: d.deleted || false,
           photoURL: d.photoURL ?? null,
           qrData: d.qrData ?? null,
-          expiresAt: d.expiresAt ?? d.expiredAt ?? null,
+          expiresAt: d.expiresAt ?? d.expiredAt ?? null, // standar baca
           memberType: d.memberType ?? "",
         });
       });
@@ -248,25 +217,18 @@ export default function AdminMembersPage() {
   }, []);
 
   /* ========== Helpers ========== */
+  function isVisitType(member: Member): boolean {
+    const label =
+      (member.memberType && packageMap[member.memberType]?.toLowerCase()) ||
+      member.memberType?.toLowerCase() ||
+      "";
+    return label.includes("visit");
+  }
+
   function formatRupiah(angka: string): string {
     if (!angka) return "";
     return angka.replace(/\D/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   }
-
-  const selectedPkg = useMemo(() => {
-    if (!payPackageId) return null;
-    return packageMap[payPackageId] ?? null;
-  }, [payPackageId, packageMap]);
-
-  const computedTotal = useMemo(() => {
-    if (!selectedPkg) return 0;
-    const price = selectedPkg.price || 0;
-    if (selectedPkg.duration === "Harian") return price; // selalu 1 hari
-    const cycles = Math.max(1, Number(payMonth || 1));
-    return price * cycles;
-  }, [selectedPkg, payMonth]);
-
-  const unitLabel = selectedPkg?.duration === "Tahunan" ? "tahun" : selectedPkg?.duration === "Bulanan" ? "bulan" : "hari";
 
   /* ========== CRUD soft delete/restore ========== */
   const handleDelete = async (id: string) => {
@@ -373,14 +335,6 @@ export default function AdminMembersPage() {
   const openPayModal = (member: Member) => {
     setSelectedMember(member);
     setShowPayModal(true);
-
-    // default paket = paket yang tersimpan di user (kalau masih ada), jika tidak pilih paket pertama
-    const defaultPkgId =
-      (member.memberType && packageMap[member.memberType] ? member.memberType : "") ||
-      (packages[0]?.id ?? "");
-    setPayPackageId(defaultPkgId);
-
-    // reset lainnya
     setPayMonth(1);
     setPayNominal("");
     setPayFile(null);
@@ -392,7 +346,6 @@ export default function AdminMembersPage() {
   const closePayModal = () => {
     setShowPayModal(false);
     setSelectedMember(null);
-    setPayPackageId("");
     setPayMonth(1);
     setPayNominal("");
     setPayFile(null);
@@ -401,7 +354,7 @@ export default function AdminMembersPage() {
     setPayNotes("");
   };
 
-  const handleProofChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null;
     setPayFileError("");
     if (!file) {
@@ -419,38 +372,26 @@ export default function AdminMembersPage() {
     setPayFilePreview(URL.createObjectURL(file));
   };
 
-  const handleUseAutoNominal = () => {
-    setPayNominal(formatRupiah(String(computedTotal)));
-  };
-
   const handlePay = async () => {
     if (!selectedMember) return;
     if (!payFile) {
       setPayFileError("Bukti pembayaran wajib diupload.");
       return;
     }
-    if (!payPackageId || !selectedPkg) {
-      alert("Pilih paket terlebih dahulu.");
-      return;
-    }
-
     setPayLoading(true);
     try {
       // Hitung expiry baru
-      const now = new Date();
-      const currentExpiry = toJSDate(selectedMember.expiresAt) ?? now;
-      const startDate = currentExpiry > now ? currentExpiry : now;
-
-      const newExpiry = new Date(startDate);
-      if (selectedPkg.duration === "Harian") {
+      let newExpiry: Date;
+      if (isVisitType(selectedMember)) {
+        newExpiry = new Date();
         newExpiry.setDate(newExpiry.getDate() + 1);
-        // set ke akhir hari
         newExpiry.setHours(23, 59, 59, 999);
-      } else if (selectedPkg.duration === "Bulanan") {
-        newExpiry.setMonth(newExpiry.getMonth() + Math.max(1, payMonth));
       } else {
-        // Tahunan = 12 * payMonth bulan
-        newExpiry.setMonth(newExpiry.getMonth() + Math.max(1, payMonth) * 12);
+        const lastExpiry = toJSDate(selectedMember.expiresAt) ?? new Date();
+        const now = new Date();
+        const startDate = lastExpiry > now ? lastExpiry : now;
+        newExpiry = new Date(startDate);
+        newExpiry.setMonth(newExpiry.getMonth() + Number(payMonth));
       }
 
       // Upload bukti
@@ -459,15 +400,14 @@ export default function AdminMembersPage() {
       await uploadBytes(fileRef, payFile);
       const fileURL = await getDownloadURL(fileRef);
 
-      // Update user: expiry + tipe member baru
+      // Update user expiry
       const ts = Timestamp.fromDate(newExpiry);
       await updateDoc(doc(db, "users", selectedMember.id), {
         expiresAt: ts,
         status: "aktif",
-        memberType: payPackageId,
       });
 
-      // Siapkan data pembayaran
+      // Siapkan data pembayaran (field mapping BARU)
       const priceNumber = Number(payNominal.replace(/\./g, "")) || 0;
       const created = Timestamp.now();
 
@@ -475,20 +415,17 @@ export default function AdminMembersPage() {
         userId: selectedMember.id,
         name: selectedMember.name,
         price: priceNumber,
-        // cycles: untuk selain Harian; Harian = 0
-        cycles: selectedPkg.duration === "Harian" ? 0 : Math.max(1, payMonth),
-        duration: selectedPkg.duration, // "Harian" | "Bulanan" | "Tahunan"
-        created,
+        months: isVisitType(selectedMember) ? 0 : payMonth,
+        created, // pengganti paidAt
         updatedAt: created,
-        approvedAt: null,
+        approvedAt: null, // di-approve nanti
         approvedBy: "",
-        proofUrl: fileURL,
+        proofUrl: fileURL, // pengganti imageUrl
         method: "manual",
         status: "success",
         expiresAt: ts,
-        packageId: payPackageId,
-        packageName: selectedPkg.name,
-        packagePrice: selectedPkg.price,
+        packageId: selectedMember.memberType ?? "",
+        packageName: selectedMember.memberType && packageMap[selectedMember.memberType] ? packageMap[selectedMember.memberType] : "",
         notes: payNotes || "",
         admin: "admin",
       };
@@ -498,9 +435,7 @@ export default function AdminMembersPage() {
       // Sync state
       setMembers((prev) =>
         prev.map((m) =>
-          m.id === selectedMember.id
-            ? { ...m, expiresAt: ts, status: "aktif", memberType: payPackageId }
-            : m
+          m.id === selectedMember.id ? { ...m, expiresAt: ts, status: "aktif" } : m
         )
       );
 
@@ -543,9 +478,7 @@ export default function AdminMembersPage() {
 
       <div className="flex-1 p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
-          <h1 className="text-3xl font-extrabold" style={{ color: colors.text }}>
-            Manajemen Member
-          </h1>
+          <h1 className="text-3xl font-extrabold" style={{ color: colors.text }}>Manajemen Member</h1>
           <button
             onClick={() => router.push("/admin/members/form")}
             className="flex items-center gap-2 px-5 py-3 rounded-xl shadow-md transition text-white"
@@ -672,7 +605,7 @@ export default function AdminMembersPage() {
               {loading ? (
                 Array.from({ length: 8 }).map((_, i) => (
                   <tr key={`skeleton-${i}`}>
-                    {Array.from({ length: 10 }).map((__, j) => (
+                    {Array.from({ length: 10 }).map((_, j) => (
                       <td key={`sk-${i}-${j}`} className="p-4">
                         <div className="h-5 bg-gray-200 rounded animate-pulse" />
                       </td>
@@ -695,7 +628,7 @@ export default function AdminMembersPage() {
                     <td className="p-4 font-semibold" style={{ color: colors.darker }}>
                       {member.memberType
                         ? packageMap[member.memberType]
-                          ? packageMap[member.memberType].name
+                          ? packageMap[member.memberType]
                           : <span className="text-amber-600">Paket tidak ditemukan (mungkin terhapus)</span>
                         : <span className="text-gray-400 italic">Belum dipilih</span>}
                     </td>
@@ -814,8 +747,6 @@ export default function AdminMembersPage() {
               <h2 className="text-lg font-bold mb-4" style={{ color: colors.text }}>
                 Perpanjang / Pembayaran Member
               </h2>
-
-              {/* Info member */}
               <div className="mb-4 text-sm">
                 <div className="mb-1"><b>Nama:</b> {selectedMember.name}</div>
                 <div className="mb-1"><b>Email:</b> {selectedMember.email}</div>
@@ -826,72 +757,43 @@ export default function AdminMembersPage() {
                   </span>
                 </div>
                 <div className="mb-1"><b>Expired Saat Ini:</b> {formatDate(selectedMember.expiresAt)}</div>
+                <div className="mb-1">
+                  <b>Tipe Member:</b>{" "}
+                  {selectedMember.memberType && packageMap[selectedMember.memberType] ? (
+                    packageMap[selectedMember.memberType]
+                  ) : (
+                    <span className="text-gray-400 italic">Belum dipilih</span>
+                  )}
+                </div>
               </div>
 
-              {/* Paket */}
-              <div className="mb-3">
-                <label className="block mb-1 font-semibold">Tipe Member / Paket</label>
-                <select
-                  value={payPackageId}
-                  onChange={(e) => setPayPackageId(e.target.value)}
-                  className="border px-3 py-2 rounded w-full"
+              {isVisitType(selectedMember) ? (
+                <div
+                  className="mb-3 px-3 py-2 rounded border text-yellow-800 font-semibold text-center"
+                  style={{ background: "#FFFBEB", borderColor: "#FDE68A" }}
                 >
-                  {packages.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} — Rp {Number(p.price).toLocaleString("id-ID")} ({p.duration})
-                    </option>
-                  ))}
-                </select>
-
-                {selectedPkg && (
-                  <div className="mt-2 text-xs text-gray-700 flex items-start gap-2">
-                    <Info className="w-4 h-4 mt-0.5" />
-                    <div>
-                      Harga paket: <b>Rp {selectedPkg.price.toLocaleString("id-ID")}</b> per{" "}
-                      <b>{selectedPkg.duration === "Tahunan" ? "tahun" : selectedPkg.duration === "Bulanan" ? "bulan" : "hari"}</b>.
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Pilih siklus (kecuali Harian) */}
-              {selectedPkg?.duration !== "Harian" ? (
+                  <b>Paket Visit:</b> Masa aktif <b>1 hari</b> sejak pembayaran.
+                  <br />
+                  <span className="text-xs text-gray-500">(expired otomatis hari berikutnya jam 23:59)</span>
+                </div>
+              ) : (
                 <div className="mb-3">
-                  <label className="block mb-1 font-semibold">Perpanjang Berapa {unitLabel}?</label>
+                  <label className="block mb-1 font-semibold">Perpanjang Berapa Bulan?</label>
                   <select
                     value={payMonth}
                     onChange={(e) => setPayMonth(Number(e.target.value))}
                     className="border px-3 py-2 rounded w-full"
                   >
-                    <option value={1}>1 {unitLabel}</option>
-                    <option value={3}>3 {unitLabel}</option>
-                    <option value={6}>6 {unitLabel}</option>
-                    <option value={12}>12 {unitLabel}</option>
+                    <option value={1}>1 Bulan</option>
+                    <option value={3}>3 Bulan</option>
+                    <option value={6}>6 Bulan</option>
+                    <option value={12}>12 Bulan</option>
                   </select>
-                </div>
-              ) : (
-                <div
-                  className="mb-3 px-3 py-2 rounded border text-yellow-800 font-semibold text-center"
-                  style={{ background: "#FFFBEB", borderColor: "#FDE68A" }}
-                >
-                  Paket <b>Harian/Visit</b>: masa aktif 1 hari (habis jam 23:59 hari berikutnya).
                 </div>
               )}
 
-              {/* Total otomatis */}
               <div className="mb-3">
-                <div className="flex items-center justify-between">
-                  <label className="block mb-1 font-semibold">Nominal Pembayaran (Rp)</label>
-                  <button
-                    type="button"
-                    onClick={handleUseAutoNominal}
-                    className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border"
-                    style={{ borderColor: colors.light }}
-                    title="Isi otomatis dari hasil perhitungan"
-                  >
-                    <Calculator className="w-4 h-4" /> Gunakan nominal otomatis
-                  </button>
-                </div>
+                <label className="block mb-1 font-semibold">Nominal Pembayaran (Rp)</label>
                 <input
                   type="text"
                   className="border px-3 py-2 rounded w-full"
@@ -905,16 +807,8 @@ export default function AdminMembersPage() {
                   inputMode="numeric"
                   autoComplete="off"
                 />
-                {selectedPkg && (
-                  <div className="mt-1 text-xs text-gray-600">
-                    Perhitungan otomatis: <b>Rp {computedTotal.toLocaleString("id-ID")}</b> (
-                    Rp {selectedPkg.price.toLocaleString("id-ID")} ×{" "}
-                    {selectedPkg.duration === "Harian" ? 1 : Math.max(1, payMonth)} {unitLabel})
-                  </div>
-                )}
               </div>
 
-              {/* Catatan */}
               <div className="mb-3">
                 <label className="block mb-1 font-semibold">Catatan (opsional)</label>
                 <textarea
@@ -926,7 +820,6 @@ export default function AdminMembersPage() {
                 />
               </div>
 
-              {/* Bukti */}
               <div className="mb-3">
                 <label className="mb-1 font-semibold flex items-center gap-2">
                   <UploadCloud className="w-5 h-5" /> Bukti Pembayaran (jpg/png, max 3MB)
@@ -934,7 +827,7 @@ export default function AdminMembersPage() {
                 <input
                   type="file"
                   accept="image/png, image/jpeg"
-                  onChange={handleProofChange}
+                  onChange={handleFileChange}
                   className="w-full border rounded px-3 py-2"
                 />
                 {payFilePreview && (
@@ -955,7 +848,7 @@ export default function AdminMembersPage() {
                 onClick={handlePay}
                 className="w-full text-white py-3 rounded-lg mt-2 font-bold flex items-center gap-2 justify-center"
                 style={{ background: "#16a34a" }}
-                disabled={payLoading || !payNominal || !payFile || !payPackageId}
+                disabled={payLoading || !payNominal || !payFile}
               >
                 {payLoading ? "Menyimpan..." : (<><DollarSign className="w-5 h-5" /> Simpan & Perpanjang</>)}
               </button>
