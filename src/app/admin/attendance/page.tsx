@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { Camera, Keyboard, BarChart3 } from "lucide-react";
 import KioskScanPanel from "@/components/attendance/KioskScanPanel";
-import ManualCheckIn from "@/components/attendance/ManualCheckin";
+import ManualCheckIn from "@/components/attendance/ManualCheckIn";
 import { db } from "@/lib/firebase";
 import { doc, serverTimestamp, setDoc, increment } from "firebase/firestore";
 
