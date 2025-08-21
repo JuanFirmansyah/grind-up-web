@@ -12,6 +12,7 @@ import { Eye } from "lucide-react";
 
 const navItems = [
   { label: "Dashboard", href: "/admin/dashboard" },
+  { label: "Absensi", href: "/admin/attendance" },
   { label: "Kelas", href: "/admin/classes" },
   { label: "Paket Membership", href: "/admin/packages" },
   { label: "Member", href: "/admin/members" },

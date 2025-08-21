@@ -1,17 +1,17 @@
-// src/app/admin/reports/finance/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { collection, getDocs, updateDoc, doc, Timestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import Image from "next/image";
-import { format } from "date-fns";
+import Link from "next/link";
+import { format, isAfter, isBefore, startOfDay, endOfDay, subDays } from "date-fns";
 import { id as localeId } from "date-fns/locale";
 import { motion, AnimatePresence } from "framer-motion";
 import { AdminSidebar } from "@/components/AdminSidebar";
 import { AdminTopbar } from "@/components/AdminTopbar";
 import { AdminMobileDrawer } from "@/components/AdminMobileDrawer";
-import { X, DownloadCloud, CheckCircle2, Search, Filter } from "lucide-react";
+import { X, DownloadCloud, CheckCircle2, Search, Filter, FileText } from "lucide-react";
 import * as XLSX from "xlsx";
 
 /* ================== Color Palette (konsisten) ================== */
@@ -34,17 +34,17 @@ interface Payment {
   method: string;
   status: string;
   proofUrl?: string;
-  createdAt?: Date;
+  createdAt?: Date | null;
   approvedBy?: string;
-  approvedAt?: Date;
-  expiresAt?: Date;
+  approvedAt?: Date | null;
+  expiresAt?: Date | null;
 }
 
 type StatusFilter = "all" | "pending" | "success" | "failed";
-type MethodFilter = "all" | "manual" | "midtrans" | "transfer" | "cash";
+type MethodFilter = "all" | "manual" | "midtrans" | "transfer" | "cash" | "qris" | "other";
 
 export default function ReportFinancePage() {
-  const [mounted, setMounted] = useState(false); // ✅ guard mount
+  const [mounted, setMounted] = useState(false);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalImg, setModalImg] = useState<string | null>(null);
@@ -54,6 +54,10 @@ export default function ReportFinancePage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [methodFilter, setMethodFilter] = useState<MethodFilter>("all");
+
+  // NEW: date filter
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
 
   // verify modal
   const [verifyOpen, setVerifyOpen] = useState(false);
@@ -82,17 +86,24 @@ export default function ReportFinancePage() {
           userId: (d.userId as string) || "-",
           packageName: (d.packageName as string) || "-",
           price: Number(d.price ?? 0),
-          method: (d.method as string) || "-",
-          status: (d.status as string) || "-",
+          method: ((d.method as string) || "-").toLowerCase(),
+          status: ((d.status as string) || "-").toLowerCase(),
           proofUrl: (d.proofUrl as string) || (d.imageURL as string) || "",
-          createdAt: createdAny?.toDate?.() || new Date(),
+          // IMPORTANT: kalau tidak ada timestamp, JANGAN default ke new Date()
+          createdAt: createdAny?.toDate?.() ?? null,
           approvedBy: (d.approvedBy as string) || "",
-          approvedAt: approvedAny?.toDate?.(),
-          expiresAt: expiresAny?.toDate?.(),
+          approvedAt: approvedAny?.toDate?.() ?? null,
+          expiresAt: expiresAny?.toDate?.() ?? null,
         });
       });
 
-      data.sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
+      // default urut terbaru (createdAt paling besar dulu)
+      data.sort((a, b) => {
+        const at = a.createdAt ? a.createdAt.getTime() : 0;
+        const bt = b.createdAt ? b.createdAt.getTime() : 0;
+        return bt - at;
+      });
+
       setPayments(data);
       setLoading(false);
     };
@@ -102,17 +113,33 @@ export default function ReportFinancePage() {
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
+    const fromDate = dateFrom ? startOfDay(new Date(dateFrom)) : null;
+    const toDate = dateTo ? endOfDay(new Date(dateTo)) : null;
+
     return payments.filter((p) => {
+      // search
       const matchesSearch =
         !s ||
-        (p.userId + p.packageName + p.method + p.status + (p.approvedBy || ""))
-          .toLowerCase()
-          .includes(s);
+        (p.userId + p.packageName + p.method + p.status + (p.approvedBy || "")).toLowerCase().includes(s);
+
+      // status & method
       const matchesStatus = statusFilter === "all" ? true : p.status === statusFilter;
       const matchesMethod = methodFilter === "all" ? true : p.method === methodFilter;
-      return matchesSearch && matchesStatus && matchesMethod;
+
+      // date range (pakai createdAt)
+      let matchesDate = true;
+      if (fromDate && p.createdAt) {
+        matchesDate = matchesDate && (isAfter(p.createdAt, fromDate) || +p.createdAt === +fromDate);
+      }
+      if (toDate && p.createdAt) {
+        matchesDate = matchesDate && (isBefore(p.createdAt, toDate) || +p.createdAt === +toDate);
+      }
+      // kalau p.createdAt null tapi user set filter tanggal → exclude
+      if ((fromDate || toDate) && !p.createdAt) matchesDate = false;
+
+      return matchesSearch && matchesStatus && matchesMethod && matchesDate;
     });
-  }, [payments, search, statusFilter, methodFilter]);
+  }, [payments, search, statusFilter, methodFilter, dateFrom, dateTo]);
 
   const totalAmount = useMemo(
     () =>
@@ -167,9 +194,22 @@ export default function ReportFinancePage() {
     setApprovedByInput("");
   }
 
+  // Quick ranges
+  const setLast7Days = () => {
+    setDateFrom(format(subDays(new Date(), 6), "yyyy-MM-dd"));
+    setDateTo(format(new Date(), "yyyy-MM-dd"));
+  };
+  const setLast30Days = () => {
+    setDateFrom(format(subDays(new Date(), 29), "yyyy-MM-dd"));
+    setDateTo(format(new Date(), "yyyy-MM-dd"));
+  };
+  const resetDates = () => {
+    setDateFrom("");
+    setDateTo("");
+  };
+
   /* ========= Rendering guard to avoid SSR/CSR mismatch ========= */
   if (!mounted) {
-    // Placeholder yang sama di server & client sebelum mount
     return (
       <main
         className="min-h-screen flex flex-col md:flex-row relative"
@@ -210,6 +250,7 @@ export default function ReportFinancePage() {
         onClose={() => setDrawerOpen(false)}
         navItems={[
           { label: "Dashboard", href: "/admin/dashboard" },
+          { label: "Absensi", href: "/admin/attendance" },
           { label: "Kelas", href: "/admin/classes" },
           { label: "Paket Membership", href: "/admin/packages" },
           { label: "Member", href: "/admin/members" },
@@ -222,6 +263,7 @@ export default function ReportFinancePage() {
       <AdminSidebar
         navItems={[
           { label: "Dashboard", href: "/admin/dashboard" },
+          { label: "Absensi", href: "/admin/attendance" },
           { label: "Kelas", href: "/admin/classes" },
           { label: "Paket Membership", href: "/admin/packages" },
           { label: "Member", href: "/admin/members" },
@@ -304,13 +346,58 @@ export default function ReportFinancePage() {
               <option value="manual">Manual</option>
               <option value="transfer">Transfer</option>
               <option value="cash">Cash</option>
+              <option value="qris">QRIS</option>
+              <option value="other">Lainnya</option>
               <option value="midtrans">Midtrans</option>
             </select>
+
+            {/* NEW: date range */}
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="border rounded-xl px-3 py-2"
+              style={{ borderColor: colors.light }}
+              aria-label="Dari tanggal"
+            />
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="border rounded-xl px-3 py-2"
+              style={{ borderColor: colors.light }}
+              aria-label="Sampai tanggal"
+            />
+            <button
+              type="button"
+              onClick={setLast7Days}
+              className="px-3 py-2 rounded-xl border text-sm"
+              style={{ borderColor: colors.light }}
+            >
+              7 hari
+            </button>
+            <button
+              type="button"
+              onClick={setLast30Days}
+              className="px-3 py-2 rounded-xl border text-sm"
+              style={{ borderColor: colors.light }}
+            >
+              30 hari
+            </button>
+            <button
+              type="button"
+              onClick={resetDates}
+              className="px-3 py-2 rounded-xl border text-sm"
+              style={{ borderColor: colors.light }}
+            >
+              Reset
+            </button>
+
             <div
               className="ml-auto lg:ml-4 px-3 py-2 rounded-xl text-sm font-semibold"
               style={{ background: `${colors.base}20`, color: colors.darker }}
             >
-              Total transaksi: {payments.length} •
+              Total transaksi: {filtered.length} •
               <span className="ml-1"> Pendapatan (success): Rp {totalAmount.toLocaleString("id-ID")}</span>
             </div>
           </div>
@@ -404,19 +491,33 @@ export default function ReportFinancePage() {
                       )}
                     </td>
                     <td className="p-4">
-                      {p.status !== "success" && (
-                        <button
-                          type="button"
-                          onClick={() => openVerifyModal(p.id)}
+                      <div className="flex items-center gap-2">
+                        {/* NEW: tombol Invoice */}
+                        <Link
+                          href={`/admin/invoice/${p.id}`}
                           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-white text-sm"
-                          style={{ background: "#16a34a" }}
-                          aria-label="Verifikasi pembayaran"
-                          title="Verifikasi pembayaran"
+                          style={{ background: colors.darker }}
+                          aria-label="Buka Invoice"
+                          title="Buka Invoice"
                         >
-                          <CheckCircle2 className="w-4 h-4" />
-                          Verifikasi
-                        </button>
-                      )}
+                          <FileText className="w-4 h-4" />
+                          Invoice
+                        </Link>
+
+                        {p.status !== "success" && (
+                          <button
+                            type="button"
+                            onClick={() => openVerifyModal(p.id)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-white text-sm"
+                            style={{ background: "#16a34a" }}
+                            aria-label="Verifikasi pembayaran"
+                            title="Verifikasi pembayaran"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                            Verifikasi
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </motion.tr>
                 ))

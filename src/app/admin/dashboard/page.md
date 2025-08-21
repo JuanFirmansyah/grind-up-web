@@ -18,7 +18,6 @@ import {
   setDoc,
   updateDoc,
   increment,
-  addDoc,
   type DocumentData,
 } from "firebase/firestore";
 import { motion, AnimatePresence } from "framer-motion";
@@ -73,14 +72,12 @@ type ClassType = {
   coach: string;
   coachPhoto?: string;
   desc?: string;
-  memberCount?: number; // tidak dipakai untuk slot
+  memberCount?: number; // (tidak dipakai utk slot)
   room?: string;
   calories?: number;
   level?: string;
-  slots?: number; // total slot
-  bookedCount?: number; // jumlah hadir/tercatat
-  allowDropIn?: boolean;
-  dropInPrice?: number | null;
+  slots?: number;          // total slot
+  bookedCount?: number;    // jumlah sudah hadir/tercatat
 };
 
 type MaybeTs = Date | string | number | Timestamp | null | undefined;
@@ -180,9 +177,7 @@ export default function AdminDashboard() {
             calories: (d.calories ?? d.calorieBurn ?? 0) as number,
             level: (d.level || "-") as string,
             slots: (d.slots ?? 0) as number,
-            bookedCount: (d.bookedCount ?? 0) as number,
-            allowDropIn: Boolean(d.allowDropIn),
-            dropInPrice: typeof d.dropInPrice === "number" ? d.dropInPrice : null,
+            bookedCount: (d.bookedCount ?? 0) as number, // dipakai utk slot tersisa
           });
         });
 
@@ -387,17 +382,11 @@ function StatCard({
   chipColor: string;
 }) {
   return (
-    <motion.div
-      whileHover={{ y: -2, boxShadow: "0 2px 32px 0 #97CCDD22" }}
-      className="rounded-2xl p-4 shadow-sm border bg-white"
-      style={{ borderColor: colors.light }}
-    >
+    <motion.div whileHover={{ y: -2, boxShadow: "0 2px 32px 0 #97CCDD22" }} className="rounded-2xl p-4 shadow-sm border bg-white" style={{ borderColor: colors.light }}>
       <div className="flex items-center justify-between">
         <div>
           <div className="text-sm text-gray-500">{label}</div>
-          <div className="text-3xl font-extrabold" style={{ color: colors.text }}>
-            {value}
-          </div>
+          <div className="text-3xl font-extrabold" style={{ color: colors.text }}>{value}</div>
         </div>
         <span className="px-2 py-1 text-xs font-bold rounded-lg" style={{ background: chipColor, color: colors.textLight }}>
           {chip}
@@ -438,9 +427,7 @@ function ClickableStatCard({
       <div className="flex items-start justify-between">
         <div>
           <div className="text-sm text-gray-500">{label}</div>
-          <div className="text-3xl font-extrabold" style={{ color: colors.text }}>
-            {value}
-          </div>
+          <div className="text-3xl font-extrabold" style={{ color: colors.text }}>{value}</div>
           {subtitle && <div className="mt-1 text-xs text-gray-500">{subtitle}</div>}
         </div>
         <div className="flex items-center gap-2">
@@ -474,9 +461,7 @@ function ClassCalendar({
 }) {
   return (
     <div>
-      <h2 className="text-xl font-bold mb-2" style={{ color: colors.text }}>
-        Kalender Kelas Mingguan
-      </h2>
+      <h2 className="text-xl font-bold mb-2" style={{ color: colors.text }}>Kalender Kelas Mingguan</h2>
       <div className="flex gap-2 mb-6 overflow-x-auto py-2">
         {dates.map((date) => {
           const d = dayjs(date).locale("id");
@@ -536,17 +521,13 @@ function ClassCalendar({
                     style={{ borderColor: colors.base }}
                   />
                   <div className="flex-1">
-                    <div className="font-bold text-lg" style={{ color: colors.text }}>
-                      {cls.name}
-                    </div>
+                    <div className="font-bold text-lg" style={{ color: colors.text }}>{cls.name}</div>
                     <div className="text-sm text-gray-500">Coach: {cls.coach}</div>
                   </div>
                   <div className="text-right text-xs">
                     <div className="font-semibold">Slot Tersisa</div>
-                    <div
-                      className="px-2 py-0.5 rounded-md inline-block mt-1"
-                      style={{ background: available > 0 ? "#dcfce7" : "#fee2e2", color: available > 0 ? "#166534" : "#991b1b" }}
-                    >
+                    <div className="px-2 py-0.5 rounded-md inline-block mt-1"
+                      style={{ background: available > 0 ? "#dcfce7" : "#fee2e2", color: available > 0 ? "#166534" : "#991b1b" }}>
                       {available}/{total}
                     </div>
                   </div>
@@ -562,14 +543,6 @@ function ClassCalendar({
                   <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded">{cls.memberCount || 0} Peserta</span>
                 </div>
                 <div className="text-gray-500 text-xs mt-1 line-clamp-2">{cls.desc}</div>
-
-                {cls.allowDropIn && (
-                  <div className="text-xs">
-                    <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">
-                      Drop‑In {typeof cls.dropInPrice === "number" ? `• Rp ${cls.dropInPrice.toLocaleString("id-ID")}` : ""}
-                    </span>
-                  </div>
-                )}
 
                 <div className="flex justify-end gap-2 pt-2">
                   <button
@@ -609,14 +582,7 @@ function ClassDetailModal({
   onClose: () => void;
 }) {
   return (
-    <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      role="dialog"
-      aria-modal
-    >
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} role="dialog" aria-modal>
       <motion.div
         className="bg-white rounded-2xl shadow-2xl p-7 w-full max-w-md relative"
         initial={{ scale: 0.92, y: 40, opacity: 0 }}
@@ -624,11 +590,7 @@ function ClassDetailModal({
         exit={{ scale: 0.92, y: 40, opacity: 0 }}
         transition={{ type: "spring", stiffness: 360, damping: 28 }}
       >
-        <button
-          className="absolute right-4 top-4 text-gray-400 hover:text-red-400 text-2xl"
-          onClick={onClose}
-          aria-label="Tutup"
-        >
+        <button className="absolute right-4 top-4 text-gray-400 hover:text-red-400 text-2xl" onClick={onClose} aria-label="Tutup">
           &times;
         </button>
         <div className="flex items-center gap-4 mb-3">
@@ -641,40 +603,18 @@ function ClassDetailModal({
             style={{ borderColor: colors.base }}
           />
           <div>
-            <div className="text-lg font-bold" style={{ color: colors.text }}>
-              {data.name}
-            </div>
+            <div className="text-lg font-bold" style={{ color: colors.text }}>{data.name}</div>
             <div className="text-sm text-gray-500">Coach: {data.coach}</div>
             {coach.email && <div className="text-xs text-gray-400">{coach.email}</div>}
           </div>
         </div>
         <div className="mb-2 text-sm text-gray-700">{data.desc}</div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm my-3">
-          <div>
-            <b>Waktu:</b>
-            <br />
-            {data.time}
-          </div>
-          <div>
-            <b>Ruangan:</b>
-            <br />
-            {data.room}
-          </div>
-          <div>
-            <b>Level:</b>
-            <br />
-            {data.level}
-          </div>
-          <div>
-            <b>Kalori Burn:</b>
-            <br />
-            {data.calories} kcal
-          </div>
-          <div>
-            <b>Peserta:</b>
-            <br />
-            {data.memberCount || 0} Orang
-          </div>
+          <div><b>Waktu:</b><br />{data.time}</div>
+          <div><b>Ruangan:</b><br />{data.room}</div>
+          <div><b>Level:</b><br />{data.level}</div>
+          <div><b>Kalori Burn:</b><br />{data.calories} kcal</div>
+          <div><b>Peserta:</b><br />{data.memberCount || 0} Orang</div>
         </div>
         <div className="border-t pt-4 mt-4">
           <div className="font-semibold text-gray-700 mb-2">Profil Coach:</div>
@@ -685,11 +625,7 @@ function ClassDetailModal({
             <div className="text-xs text-gray-500">Spesialisasi: {(coach.specialties || []).join(", ")}</div>
           )}
         </div>
-        <button
-          className="mt-6 w-full text-white font-bold py-2 rounded-xl transition-all"
-          style={{ background: colors.base }}
-          onClick={onClose}
-        >
+        <button className="mt-6 w-full text-white font-bold py-2 rounded-xl transition-all" style={{ background: colors.base }} onClick={onClose}>
           Tutup
         </button>
       </motion.div>
@@ -714,14 +650,6 @@ function AttendanceModal({
   const [search, setSearch] = useState("");
   const [present, setPresent] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState<string | null>(null);
-
-  // --- form tamu/drop-in ---
-  const [guestName, setGuestName] = useState("");
-  const [guestContact, setGuestContact] = useState(""); // email atau HP
-  const [payMethod, setPayMethod] = useState<"cash" | "qris" | "transfer" | "other">("cash");
-  const [paidNow, setPaidNow] = useState(true);
-  const [guestSaving, setGuestSaving] = useState(false);
-
   const classRef = doc(db, "classes", cls.id);
 
   useEffect(() => {
@@ -768,24 +696,14 @@ function AttendanceModal({
     );
   }, [members, search]);
 
-  const availableFromDoc = Math.max(0, (cls.slots ?? 0) - (cls.bookedCount ?? 0));
+  const available = Math.max(0, (cls.slots ?? 0) - (cls.bookedCount ?? 0));
 
   const markPresent = async (user: UserLite, newVal: boolean) => {
-    // cegah melebihi slot saat menambah
-    if (newVal && availableFromDoc <= 0) {
-      alert("Slot sudah penuh.");
-      return;
-    }
-
     setSaving(user.id);
     try {
       const attRef = doc(db, "classes", cls.id, "attendance", user.id);
       if (newVal) {
-        await setDoc(
-          attRef,
-          { present: true, name: user.name || "-", email: user.email || "", phone: user.phone || "", ts: Date.now() },
-          { merge: true }
-        );
+        await setDoc(attRef, { present: true, name: user.name || "-", email: user.email || "", phone: user.phone || "", ts: Date.now() }, { merge: true });
         await updateDoc(classRef, { bookedCount: increment(1) });
         onChanged(cls.id, +1);
       } else {
@@ -799,75 +717,10 @@ function AttendanceModal({
     }
   };
 
-  const createDropInPayment = async (price: number, success: boolean) => {
-    const payload = {
-      method: payMethod,
-      price,
-      status: success ? "success" : "pending",
-      source: "admin_manual_dropin",
-      approvedAt: success ? Date.now() : null,
-      updatedAt: Date.now(),
-      createdAt: Date.now(),
-      classId: cls.id,
-      className: cls.name,
-      classDate: cls.date,
-      classTime: cls.time,
-      coach: cls.coach,
-      userId: "guest",
-      guestName: guestName || "-",
-      guestContact: guestContact || "",
-    } as Record<string, unknown>;
-
-    await addDoc(collection(db, "payments"), payload);
-  };
-
-  const addGuestAttendance = async () => {
-    if (availableFromDoc <= 0) {
-      alert("Slot sudah penuh.");
-      return;
-    }
-    if (!guestName.trim()) {
-      alert("Nama tamu wajib diisi.");
-      return;
-    }
-
-    setGuestSaving(true);
-    try {
-      // simpan attendance tamu (ID auto)
-      const attRef = doc(collection(db, "classes", cls.id, "attendance"));
-      await setDoc(attRef, {
-        present: true,
-        isGuest: true,
-        name: guestName.trim(),
-        contact: guestContact.trim(),
-        ts: Date.now(),
-      });
-
-      await updateDoc(classRef, { bookedCount: increment(1) });
-      onChanged(cls.id, +1);
-
-      if (cls.allowDropIn && typeof cls.dropInPrice === "number" && cls.dropInPrice > 0) {
-        await createDropInPayment(cls.dropInPrice, paidNow);
-      }
-
-      setGuestName("");
-      setGuestContact("");
-      setPaidNow(true);
-    } finally {
-      setGuestSaving(false);
-    }
-  };
-
   return (
-    <motion.div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      role="dialog"
-      aria-modal
-      onClick={onClose}
-    >
+    <motion.div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} role="dialog" aria-modal
+      onClick={onClose}>
       <motion.div
         className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-2xl relative"
         initial={{ scale: 0.94, y: 28, opacity: 0 }}
@@ -876,9 +729,7 @@ function AttendanceModal({
         transition={{ type: "spring", stiffness: 360, damping: 28 }}
         onClick={(e) => e.stopPropagation()}
       >
-        <button className="absolute right-4 top-3 text-gray-400 hover:text-black text-xl" onClick={onClose} aria-label="Tutup">
-          ×
-        </button>
+        <button className="absolute right-4 top-3 text-gray-400 hover:text-black text-xl" onClick={onClose} aria-label="Tutup">×</button>
 
         <h3 className="text-lg font-bold mb-1" style={{ color: colors.text }}>
           Absensi • {cls.name}
@@ -890,87 +741,20 @@ function AttendanceModal({
         <div className="flex items-center justify-between mb-3">
           <div className="text-sm">
             <b>Slot Tersisa:</b>{" "}
-            <span className="px-2 py-0.5 rounded" style={{ background: availableFromDoc > 0 ? "#dcfce7" : "#fee2e2", color: availableFromDoc > 0 ? "#166534" : "#991b1b" }}>
-              {availableFromDoc}/{cls.slots ?? 0}
+            <span className="px-2 py-0.5 rounded" style={{ background: available > 0 ? "#dcfce7" : "#fee2e2", color: available > 0 ? "#166534" : "#991b1b" }}>
+              {Math.max(0, (cls.slots ?? 0) - Object.values(present).filter(Boolean).length - Math.max(0, (cls.bookedCount ?? 0) - Object.values(present).filter(Boolean).length))}/{cls.slots ?? 0}
             </span>
           </div>
-          <div className="text-xs text-gray-500">*Menandai hadir menyesuaikan <i>bookedCount</i> di dokumen kelas.</div>
+          <div className="text-xs text-gray-500">
+            *Menandai hadir menyesuaikan <i>bookedCount</i> di dokumen kelas.
+          </div>
         </div>
 
-        {/* Tambah Tamu / Drop-In */}
-        <div className="border rounded-xl p-3 mb-4" style={{ borderColor: colors.light }}>
-          <div className="flex items-center justify-between mb-2">
-            <div className="font-semibold">Tambah Tamu / Drop‑In</div>
-            <div className="text-xs text-gray-500">
-              {cls.allowDropIn
-                ? typeof cls.dropInPrice === "number"
-                  ? `Harga: Rp ${cls.dropInPrice.toLocaleString("id-ID")}`
-                  : "Drop‑In diizinkan"
-                : "Drop‑In tidak diizinkan"}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <input
-              value={guestName}
-              onChange={(e) => setGuestName(e.target.value)}
-              placeholder="Nama tamu *"
-              className="w-full border rounded-lg px-3 py-2 text-sm"
-              style={{ borderColor: colors.light }}
-            />
-            <input
-              value={guestContact}
-              onChange={(e) => setGuestContact(e.target.value)}
-              placeholder="Email atau No HP"
-              className="w-full border rounded-lg px-3 py-2 text-sm"
-              style={{ borderColor: colors.light }}
-            />
-          </div>
-
-          <div className="flex flex-col md:flex-row gap-3 items-start md:items-center mt-3">
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-600">Metode:</label>
-              <select
-                value={payMethod}
-                onChange={(e) => setPayMethod(e.target.value as typeof payMethod)}
-                className="border rounded-lg px-2 py-1 text-sm"
-                style={{ borderColor: colors.light }}
-              >
-                <option value="cash">Cash</option>
-                <option value="qris">QRIS</option>
-                <option value="transfer">Transfer</option>
-                <option value="other">Lainnya</option>
-              </select>
-            </div>
-
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={paidNow} onChange={(e) => setPaidNow(e.target.checked)} />
-              Sudah dibayar sekarang
-            </label>
-
-            <button
-              type="button"
-              onClick={addGuestAttendance}
-              disabled={guestSaving}
-              className="px-3 py-2 rounded-lg text-white text-sm disabled:opacity-60"
-              style={{ background: colors.darker }}
-            >
-              {guestSaving ? "Menyimpan…" : "Tambahkan Tamu"}
-            </button>
-          </div>
-
-          {!cls.allowDropIn && (
-            <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-              *Kelas ini tidak diatur sebagai Drop‑In. Data kehadiran tetap disimpan, namun pembayaran tidak dibuat otomatis.
-            </div>
-          )}
-        </div>
-
-        {/* Dua kolom: cari member & daftar hadir */}
+        {/* Tabs sederhana: cari member + daftar hadir */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Kolom kiri: cari member untuk absen */}
           <div className="border rounded-xl p-3" style={{ borderColor: colors.light }}>
-            <div className="font-semibold mb-2">Tandai Hadir (Member)</div>
+            <div className="font-semibold mb-2">Tandai Hadir</div>
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -987,16 +771,13 @@ function AttendanceModal({
                 filtered.map((m) => {
                   const isPresent = !!present[m.id];
                   const disabled = saving === m.id;
-                  const canAdd = !isPresent && availableFromDoc > 0;
+                  const canAdd = !isPresent && (cls.slots ?? 0) - (cls.bookedCount ?? 0) > 0;
 
                   return (
                     <div key={m.id} className="flex items-center justify-between border-t py-2 text-sm" style={{ borderColor: colors.light }}>
                       <div>
                         <div className="font-medium">{m.name || "-"}</div>
-                        <div className="text-xs text-gray-500">
-                          {m.email || ""}
-                          {m.phone ? ` • ${m.phone}` : ""}
-                        </div>
+                        <div className="text-xs text-gray-500">{m.email || ""}{m.phone ? ` • ${m.phone}` : ""}</div>
                       </div>
                       <button
                         type="button"
@@ -1015,17 +796,11 @@ function AttendanceModal({
           </div>
 
           {/* Kolom kanan: daftar yang sudah hadir */}
-          <PresentList
-            classId={cls.id}
-            setPresent={setPresent}
-            onChanged={(delta) => onChanged(cls.id, delta)}
-          />
+          <PresentList classId={cls.id} present={present} setPresent={setPresent} onChanged={(delta) => onChanged(cls.id, delta)} />
         </div>
 
         <div className="text-right mt-4">
-          <button className="px-4 py-2 rounded-lg border" style={{ borderColor: colors.light }} onClick={onClose}>
-            Tutup
-          </button>
+          <button className="px-4 py-2 rounded-lg border" style={{ borderColor: colors.light }} onClick={onClose}>Tutup</button>
         </div>
       </motion.div>
     </motion.div>
@@ -1038,6 +813,7 @@ function PresentList({
   onChanged,
 }: {
   classId: string;
+  present: Record<string, boolean>;
   setPresent: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   onChanged: (delta: number) => void;
 }) {
@@ -1086,10 +862,7 @@ function PresentList({
             <div key={r.id} className="flex items-center justify-between border-t py-2 text-sm" style={{ borderColor: colors.light }}>
               <div>
                 <div className="font-medium">{r.name || "-"}</div>
-                <div className="text-xs text-gray-500">
-                  {r.email || ""}
-                  {r.phone ? ` • ${r.phone}` : ""}
-                </div>
+                <div className="text-xs text-gray-500">{r.email || ""}{r.phone ? ` • ${r.phone}` : ""}</div>
               </div>
               <button
                 type="button"

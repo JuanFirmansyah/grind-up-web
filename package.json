@@ -11,6 +11,7 @@
     "migrate:run": "node export.mjs --rm-old"
   },
   "dependencies": {
+    "@yudiel/react-qr-scanner": "^2.3.1",
     "date-fns": "^2.30.0",
     "dayjs": "^1.11.13",
     "firebase": "^11.9.1",
