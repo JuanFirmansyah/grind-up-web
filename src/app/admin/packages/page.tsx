@@ -464,7 +464,7 @@ export default function MembershipPackagesPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center px-4"
+            className="fixed inset-0 z-50 bg-black/60 flex items-start md:items-center justify-center px-4 py-6 overflow-y-auto"
             onClick={closeModal}
           >
             <motion.div
@@ -472,7 +472,7 @@ export default function MembershipPackagesPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.97, opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className="relative bg-white p-6 md:p-8 rounded-2xl shadow-xl w-full max-w-2xl"
+              className="relative bg-white p-6 md:p-8 rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto overscroll-contain"
               onClick={(e) => e.stopPropagation()}
             >
               <button

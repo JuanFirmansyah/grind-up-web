@@ -1,4 +1,3 @@
-// src/app/admin/attendance/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -24,13 +23,11 @@ import {
 } from "firebase/firestore";
 
 /* =====================
-   Zona waktu: Asia/Jakarta
+   Zona waktu: Asia/Makassar (WITA)
    ===================== */
-const TZ = "Asia/Jakarta";
+const TZ = "Asia/Makassar";
 
-// YYYY-MM-DD (untuk <input type="date"> & field dateKey)
 function dateIsoTZ(d: Date = new Date()): string {
-  // en-CA menghasilkan "YYYY-MM-DD"
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: TZ,
     year: "numeric",
@@ -38,13 +35,9 @@ function dateIsoTZ(d: Date = new Date()): string {
     day: "2-digit",
   }).format(d);
 }
-
-// YYYYMMDD (dokumen daily_attendance)
 function ymdTZ(d: Date = new Date()): string {
   return dateIsoTZ(d).replaceAll("-", "");
 }
-
-// 0..23 jam di TZ
 function hourTZ(d: Date = new Date()): number {
   return Number(
     new Intl.DateTimeFormat("en-GB", {
@@ -54,8 +47,6 @@ function hourTZ(d: Date = new Date()): number {
     }).format(d)
   );
 }
-
-// HH:mm di TZ (untuk display)
 function timeHMtz(d?: Date): string {
   if (!d) return "-";
   return new Intl.DateTimeFormat("en-GB", {
@@ -67,14 +58,14 @@ function timeHMtz(d?: Date): string {
 }
 
 /* =====================
-   Check-in (transaction) — konsisten TZ
+   Check-in member (transaction)
    ===================== */
 async function doCheckInClient(params: { userId: string; gymId?: string }) {
   const { userId, gymId = "default" } = params;
 
   const now = new Date();
-  const ymd = ymdTZ(now); // "YYYYMMDD" di Asia/Jakarta
-  const hour = hourTZ(now); // 0..23 di Asia/Jakarta
+  const ymd = ymdTZ(now);
+  const hour = hourTZ(now);
 
   const gymRef = doc(db, "gyms", gymId);
   const checkinRef = doc(db, "gyms", gymId, "checkins", `${ymd}_${userId}`);
@@ -82,19 +73,15 @@ async function doCheckInClient(params: { userId: string; gymId?: string }) {
 
   try {
     const result = await runTransaction(db, async (tx) => {
-      // Semua read dulu
       const existed = await tx.get(checkinRef);
-      if (existed.exists()) {
-        return { duplicate: true as const };
-      }
+      if (existed.exists()) return { duplicate: true as const };
 
-      // Tulis data
       tx.set(gymRef, { lastActivityAt: serverTimestamp() }, { merge: true });
 
       tx.set(checkinRef, {
         gymId,
         userId,
-        dateKey: dateIsoTZ(now), // "YYYY-MM-DD" di TZ
+        dateKey: dateIsoTZ(now),
         byHour: hour,
         source: "kiosk",
         createdAt: serverTimestamp(),
@@ -122,22 +109,30 @@ async function doCheckInClient(params: { userId: string; gymId?: string }) {
 }
 
 /* =====================
-   Tipe & Converters Firestore (tanpa any)
+   Types & converters
    ===================== */
 type DailyDoc = {
-  dateKey?: string;                     // "YYYYMMDD"
+  dateKey?: string; // "YYYYMMDD"
   count?: number;
-  byHour?: Record<string, number>;      // "00".."23" -> count
+  byHour?: Record<string, number>;
   updatedAt?: Timestamp;
+};
+
+type GuestInfo = {
+  name?: string;
+  email?: string;
+  phone?: string;
+  note?: string;
 };
 
 type CheckinDoc = {
   gymId?: string;
-  userId?: string;
-  dateKey?: string;                     // "YYYY-MM-DD"
-  byHour?: number;                      // 0..23
-  source?: string;                      // "kiosk" | "manual"
+  userId?: string; // "GUEST" untuk tamu
+  dateKey?: string; // "YYYY-MM-DD"
+  byHour?: number; // 0..23
+  source?: string; // "kiosk" | "manual" | "manual_guest"
   createdAt?: Timestamp;
+  guest?: GuestInfo; // data tamu bila ada
 };
 
 const dailyConverter: FirestoreDataConverter<DailyDoc> = {
@@ -145,9 +140,7 @@ const dailyConverter: FirestoreDataConverter<DailyDoc> = {
   fromFirestore: (snap, options) => {
     const data = snap.data(options) as DocumentData;
     const byHourObj =
-      typeof data.byHour === "object" && data.byHour !== null
-        ? (data.byHour as Record<string, unknown>)
-        : {};
+      typeof data.byHour === "object" && data.byHour !== null ? (data.byHour as Record<string, unknown>) : {};
     const byHour: Record<string, number> = {};
     for (const k of Object.keys(byHourObj)) {
       const v = byHourObj[k];
@@ -166,6 +159,17 @@ const checkinConverter: FirestoreDataConverter<CheckinDoc> = {
   toFirestore: (d: CheckinDoc): DocumentData => d,
   fromFirestore: (snap, options) => {
     const data = snap.data(options) as DocumentData;
+
+    const gRaw = data.guest && typeof data.guest === "object" ? (data.guest as Record<string, unknown>) : undefined;
+    const guest: GuestInfo | undefined = gRaw
+      ? {
+          name: typeof gRaw.name === "string" ? gRaw.name : undefined,
+          email: typeof gRaw.email === "string" ? gRaw.email : undefined,
+          phone: typeof gRaw.phone === "string" ? gRaw.phone : undefined,
+          note: typeof gRaw.note === "string" ? gRaw.note : undefined,
+        }
+      : undefined;
+
     return {
       gymId: typeof data.gymId === "string" ? data.gymId : undefined,
       userId: typeof data.userId === "string" ? data.userId : undefined,
@@ -173,12 +177,13 @@ const checkinConverter: FirestoreDataConverter<CheckinDoc> = {
       byHour: typeof data.byHour === "number" ? data.byHour : undefined,
       source: typeof data.source === "string" ? data.source : undefined,
       createdAt: data.createdAt instanceof Timestamp ? data.createdAt : undefined,
+      guest,
     };
   },
 };
 
 /* =====================
-   Tipe untuk UI
+   UI types
    ===================== */
 type DailySummary = {
   dateKey: string;
@@ -195,12 +200,12 @@ type CheckinRow = {
 };
 
 /* =====================
-   Helper agregasi & fetch user info
+   helpers
    ===================== */
 function aggregateByHour(items: { byHour?: number; createdAt?: Date }[]): Record<string, number> {
   const agg: Record<string, number> = {};
   for (const r of items) {
-    const hh = typeof r.byHour === "number" ? r.byHour : (r.createdAt ? hourTZ(r.createdAt) : undefined);
+    const hh = typeof r.byHour === "number" ? r.byHour : r.createdAt ? hourTZ(r.createdAt) : undefined;
     if (typeof hh === "number") {
       const key = String(hh).padStart(2, "0");
       agg[key] = (agg[key] ?? 0) + 1;
@@ -230,7 +235,7 @@ async function fetchUsersBrief(ids: string[]): Promise<Record<string, UserBrief>
 }
 
 /* =====================
-   Panel utama
+   Page
    ===================== */
 export default function AttendancePage() {
   const [tab, setTab] = useState<"scan" | "manual" | "daily">("scan");
@@ -249,11 +254,8 @@ export default function AttendancePage() {
   return (
     <div className="p-4 md:p-6">
       <h1 className="text-2xl font-bold mb-2">Absensi</h1>
-      <p className="text-sm text-neutral-500 mb-4">
-        Scan QR (kiosk), input manual/visitor, dan lihat ringkasan harian.
-      </p>
+      <p className="text-sm text-neutral-500 mb-4">Scan QR (kiosk), input manual/visitor, dan lihat ringkasan harian.</p>
 
-      {/* Tabs */}
       <div className="flex items-center gap-2 mb-4">
         {tabs.map((t) => (
           <button
@@ -268,15 +270,10 @@ export default function AttendancePage() {
         ))}
       </div>
 
-      {/* Panels */}
       <div className="rounded-2xl border bg-white p-3 md:p-4">
-        {tab === "scan" && (
-          <KioskScanPanel gymId={gymId} onCheckIn={({ userId }) => doCheckInClient({ userId, gymId })} />
-        )}
+        {tab === "scan" && <KioskScanPanel gymId={gymId} onCheckIn={({ userId }) => doCheckInClient({ userId, gymId })} />}
 
-        {tab === "manual" && (
-          <ManualCheckIn gymId={gymId} onCheckIn={({ userId }) => doCheckInClient({ userId, gymId })} />
-        )}
+        {tab === "manual" && <ManualCheckIn gymId={gymId} onCheckIn={({ userId }) => doCheckInClient({ userId, gymId })} />}
 
         {tab === "daily" && <DailyAttendancePanel gymId={gymId} />}
       </div>
@@ -288,12 +285,11 @@ export default function AttendancePage() {
    Komponen: DailyAttendancePanel
    ========================== */
 function DailyAttendancePanel({ gymId }: { gymId: string }) {
-  // simpan tanggal sebagai ISO TZ supaya stabil
   const [dateIso, setDateIso] = useState<string>(dateIsoTZ(new Date()));
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [rows, setRows] = useState<CheckinRow[]>([]);
-  const [rev, setRev] = useState(0); // trigger reload
+  const [rev, setRev] = useState(0);
 
   const ymd = dateIso.replaceAll("-", "");
   const dateISO = dateIso;
@@ -304,54 +300,58 @@ function DailyAttendancePanel({ gymId }: { gymId: string }) {
     async function load() {
       setLoading(true);
       try {
-        // 1) Summary harian (boleh kosong)
+        // summary
         const dailyRef = doc(db, "gyms", gymId, "daily_attendance", ymd).withConverter(dailyConverter);
         const dailySnap = await getDoc(dailyRef);
         const d = dailySnap.data() ?? undefined;
 
-        // 2) Daftar checkins (ground truth)
+        // daftar checkins (baca guest & member)
         const checkinsCol = collection(db, "gyms", gymId, "checkins").withConverter(checkinConverter);
         const q1 = query(checkinsCol, where("dateKey", "==", dateISO));
         const snap = await getDocs(q1);
 
         const items: CheckinRow[] = [];
+        const needUsers: string[] = [];
+
         snap.forEach((docSnap) => {
           const v = docSnap.data();
-          items.push({
+          const row: CheckinRow = {
             id: docSnap.id,
             userId: String(v.userId ?? ""),
             byHour: v.byHour,
             createdAt: v.createdAt ? v.createdAt.toDate() : undefined,
-          });
+            name: v.guest?.name,
+            email: v.guest?.email,
+          };
+          items.push(row);
+          if (row.userId && row.userId !== "GUEST" && (!row.name || !row.email)) needUsers.push(row.userId);
         });
 
-        // Join nama & email
-        const userMap = await fetchUsersBrief(items.map((i) => i.userId));
-        for (const it of items) {
-          const info = userMap[it.userId];
-          if (info) {
-            it.name = info.name;
-            it.email = info.email;
+        // join info users utk member
+        if (needUsers.length) {
+          const map = await fetchUsersBrief(needUsers);
+          for (const it of items) {
+            if (it.userId !== "GUEST") {
+              const info = map[it.userId];
+              if (info) {
+                if (!it.name && info.name) it.name = info.name;
+                if (!it.email && info.email) it.email = info.email;
+              }
+            }
           }
         }
 
-        // 3) Bangun byHour final
+        // byHour final
         const hasByHour = d?.byHour && Object.keys(d.byHour).length > 0;
         const finalByHour = hasByHour ? (d!.byHour as Record<string, number>) : aggregateByHour(items);
-
-        // 4) Total final
         const finalCount = typeof d?.count === "number" ? d!.count : items.length;
 
-        // 5) Backfill byHour bila kosong (sekali jalan saat dibuka)
+        // backfill sekali jika kosong
         if (!hasByHour && Object.keys(finalByHour).length > 0) {
-          await setDoc(
-            dailyRef,
-            { dateKey: ymd, byHour: finalByHour, updatedAt: serverTimestamp() },
-            { merge: true }
-          );
+          await setDoc(dailyRef, { dateKey: ymd, byHour: finalByHour, updatedAt: serverTimestamp() }, { merge: true });
         }
 
-        // 6) Urutkan daftar (terbaru di atas)
+        // urut terbaru
         items.sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
 
         if (!cancelled) {
@@ -400,7 +400,7 @@ function DailyAttendancePanel({ gymId }: { gymId: string }) {
     const hourlyRows = Array.from({ length: 24 }, (_, h) => {
       const key = String(h).padStart(2, "0");
       const val = byHour[key] ?? 0;
-      const width = Math.min(240, val * 14); // lebarkan sedikit
+      const width = Math.min(240, val * 14);
       return `<tr>
         <td class="hourRow">${key}:00</td>
         <td>${val}</td>
@@ -439,15 +439,12 @@ function DailyAttendancePanel({ gymId }: { gymId: string }) {
 
         <h2 style="margin-top:16px;">Daftar Hadir (${rows.length})</h2>
         <table>
-          <thead><tr><th>#</th><th>Waktu</th><th>User ID</th><th>Nama</th><th>Email</th><th>Doc ID</th></tr></thead>
+          <thead><tr><th>#</th><th>Waktu (WITA)</th><th>User ID</th><th>Nama</th><th>Email</th><th>Doc ID</th></tr></thead>
           <tbody>${checkinRows}</tbody>
         </table>
 
         <script>
-          window.onload = function() {
-            window.print();
-            setTimeout(() => window.close(), 300);
-          }
+          window.onload = function() { window.print(); setTimeout(() => window.close(), 300); }
         </script>
       </body>
       </html>
@@ -471,16 +468,9 @@ function DailyAttendancePanel({ gymId }: { gymId: string }) {
             type="date"
             className="border rounded-lg px-3 py-2 text-sm"
             value={dateISO}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v) setDateIso(v);
-            }}
+            onChange={(e) => e.target.value && setDateIso(e.target.value)}
           />
-          <button
-            onClick={reload}
-            className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border hover:bg-neutral-50"
-            title="Muat ulang"
-          >
+          <button onClick={reload} className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border hover:bg-neutral-50" title="Muat ulang">
             <RefreshCcw className="w-4 h-4" /> Refresh
           </button>
         </div>
@@ -540,7 +530,7 @@ function DailyAttendancePanel({ gymId }: { gymId: string }) {
             <thead>
               <tr className="bg-neutral-50">
                 <th className="text-left p-2 border">#</th>
-                <th className="text-left p-2 border">Waktu (WIB)</th>
+                <th className="text-left p-2 border">Waktu (WITA)</th>
                 <th className="text-left p-2 border">User ID</th>
                 <th className="text-left p-2 border">Nama</th>
                 <th className="text-left p-2 border">Email</th>
