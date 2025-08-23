@@ -8,7 +8,7 @@ import { motion } from "framer-motion";
 import {
   Calendar, Clock, UserRound, Boxes,
   Type as TypeIcon, Sparkles, Signal, FileText, Timer, Flame, ImagePlus,
-  ArrowLeft, Save, CheckCircle2, XCircle, ShieldCheck
+  ArrowLeft, Save, CheckCircle2, XCircle, ShieldCheck, AlertCircle
 } from "lucide-react";
 
 import { signOut } from "firebase/auth";
@@ -31,13 +31,13 @@ type FormState = {
   className: string;
   customClassName: string;
   date: string;
-  time: string;
+  time: string; // HH:mm
   coach: string;
-  slots: string;
+  slots: string; // keep as string for stable controlled input
   description: string;
-  duration: string;
+  duration: string; // minutes (string)
   level: "Beginner" | "Intermediate" | "Advanced";
-  calorieBurn: string;
+  calorieBurn: string; // string
   imageUrl: string;
 
   // NEW:
@@ -45,7 +45,7 @@ type FormState = {
   accessMode: AccessMode;
   allowedPackageIds: string[];
   allowDropIn: boolean;
-  dropInPrice: string;
+  dropInPrice: string; // string
 };
 
 type ClassDoc = {
@@ -94,6 +94,36 @@ const BRAND = {
   ring: "focus:ring-2 focus:ring-[#97CCDD] focus:outline-none"
 };
 
+/* Helpers */
+const hours = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, "0"));
+
+/** Numeric text input to avoid <input type="number"> blur issues */
+// GANTI definisi sebelumnya
+function NumericInput(props: {
+  value: string;
+  placeholder?: string;
+  required?: boolean;
+  className?: string;
+  onChange: (v: string) => void; // ← cukup kirim nilai
+}) {
+  const { value, placeholder, required, className, onChange } = props;
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      pattern="\d*"
+      autoComplete="off"
+      onWheel={(e) => (e.currentTarget as HTMLInputElement).blur()}
+      value={value}
+      onChange={(e) => onChange(e.target.value.replace(/[^\d]/g, ""))}
+      placeholder={placeholder}
+      required={required}
+      className={className}
+    />
+  );
+}
+
+
 /* ====================== Component ====================== */
 export default function ClassForm() {
   const router = useRouter();
@@ -107,7 +137,7 @@ export default function ClassForm() {
   const [imageError, setImageError] = useState("");
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(Boolean(classId));
-  const [notice, setNotice] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const [notice, setNotice] = useState<{ kind: "success" | "error" | "info"; text: string } | null>(null);
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const openMobile = () => setMobileOpen(true);
@@ -118,7 +148,7 @@ export default function ClassForm() {
     className: "",
     customClassName: "",
     date: "",
-    time: "",
+    time: "", // we'll construct HH:00 via UI below
     coach: "",
     slots: "",
     description: "",
@@ -135,7 +165,12 @@ export default function ClassForm() {
   });
 
   const headerTitle = useMemo(() => (classId ? "Edit Kelas" : "Tambah Kelas"), [classId]);
-  const classesCol = collection(db, "classes") as CollectionReference<ClassDoc>;
+
+  // memoize collection ref so effect deps stable
+  const classesCol = useMemo(
+    () => collection(db, "classes") as CollectionReference<ClassDoc>,
+    []
+  );
 
   /* ====================== Effects ====================== */
   useEffect(() => {
@@ -154,7 +189,7 @@ export default function ClassForm() {
       setCoaches(data);
     })();
 
-    // packages for whitelist  (FIX: nama koleksi)
+    // packages for whitelist
     (async () => {
       const ps = await getDocs(collection(db, "membership_packages"));
       const arr: PackageLite[] = ps.docs.map((d) => ({ id: d.id, name: (d.data().name as string) || "-" }));
@@ -162,12 +197,18 @@ export default function ClassForm() {
     })();
   }, []);
 
+  // Prefill hanya SEKALI saat edit
+  const [prefilled, setPrefilled] = useState(false);
   useEffect(() => {
     (async () => {
       if (!classId) {
         setInitialLoading(false);
+        // default time hint
+        setNotice({ kind: "info", text: "Jam default menitnya 00. Pilih jam saja ya." });
         return;
       }
+      if (prefilled) return;
+
       try {
         const docRef = doc(classesCol, classId);
         const docSnap = await getDoc(docRef);
@@ -193,6 +234,12 @@ export default function ClassForm() {
             dropInPrice: data.dropInPrice != null ? String(data.dropInPrice) : "",
           });
           setImagePreview(data.imageUrl || null);
+
+          const mm = (data.time?.split(":")[1] ?? "00");
+          if (mm !== "00") {
+            setNotice({ kind: "info", text: `Data lama punya menit ${mm}. Saat mengubah jam, menit akan dibuat 00.` });
+          }
+          setPrefilled(true);
         }
       } catch {
         setNotice({ kind: "error", text: "Gagal memuat data kelas." });
@@ -200,13 +247,18 @@ export default function ClassForm() {
         setInitialLoading(false);
       }
     })();
-  }, [classId, classesCol]);
+  }, [classId, classesCol, prefilled]);
 
   /* ====================== Handlers ====================== */
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) => {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
   };
+
+  const setNum = (key: keyof FormState) => (v: string) =>
+    setForm((prev) => ({ ...prev, [key]: v }));
 
   const handleClassNameChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
@@ -239,7 +291,7 @@ export default function ClassForm() {
     };
   };
 
-  const toInt = (v: string) => parseInt(v, 10);
+  const toInt = (v: string) => parseInt(v || "0", 10);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -254,14 +306,14 @@ export default function ClassForm() {
     // ==== VALIDASI WAJIB ISI ====
     if (!realClassName) return fail("Nama kelas wajib diisi.");
     if (!form.date) return fail("Tanggal wajib diisi.");
-    if (!form.time) return fail("Jam wajib diisi.");
+    if (!form.time) return fail("Jam wajib dipilih.");
     if (!form.coach) return fail("Coach wajib dipilih.");
-    if (Number.isNaN(slotsNum) || slotsNum < 1) return fail("Kapasitas harus angka >= 1.");
+    if (!Number.isFinite(slotsNum) || slotsNum < 1) return fail("Kapasitas harus angka >= 1.");
     if (!form.description.trim()) return fail("Deskripsi wajib diisi.");
-    if (Number.isNaN(durationNum) || durationNum < 1) return fail("Durasi harus angka >= 1.");
-    if (Number.isNaN(calorieNum) || calorieNum < 0) return fail("Kalori burn wajib angka (>= 0).");
+    if (!Number.isFinite(durationNum) || durationNum < 1) return fail("Durasi harus angka >= 1.");
+    if (!Number.isFinite(calorieNum) || calorieNum < 0) return fail("Kalori burn wajib angka (>= 0).");
 
-    // akses: pilih salah satu sesuai mode
+    // akses
     if (form.accessMode === "by_tags" && form.tags.length === 0) {
       return fail("Pilih minimal 1 Tag kelas.");
     }
@@ -269,7 +321,7 @@ export default function ClassForm() {
       return fail("Pilih paket yang diizinkan (whitelist).");
     }
 
-    // drop-in: bila diizinkan, wajib > 0
+    // drop-in
     if (form.allowDropIn) {
       const price = Number(form.dropInPrice || 0);
       if (!Number.isFinite(price) || price <= 0) {
@@ -277,12 +329,12 @@ export default function ClassForm() {
       }
     }
 
-    // gambar wajib ada (existing atau upload baru)
+    // gambar wajib ada
     if (!imageFile && !form.imageUrl) {
       return fail("Gambar kelas wajib diunggah (landscape).");
     }
 
-    // ==== Upload image jika ada file baru ====
+    // Upload image jika ada file baru
     let uploadedImageUrl = form.imageUrl;
     if (imageFile) {
       try {
@@ -298,7 +350,7 @@ export default function ClassForm() {
     const payload: ClassDoc = {
       className: realClassName,
       date: form.date,
-      time: form.time,
+      time: form.time, // sudah HH:mm dari komponennya
       coach: form.coach,
       slots: slotsNum,
       description: form.description,
@@ -336,7 +388,9 @@ export default function ClassForm() {
     return;
   }
 
-  const inputBase = "w-full border border-gray-300 px-4 py-2 rounded-lg shadow-sm placeholder-gray-400 " + BRAND.ring;
+  const inputBase =
+    "w-full border border-gray-300 px-4 py-2 rounded-lg shadow-sm placeholder-gray-400 " +
+    BRAND.ring;
   const labelBase = "block font-semibold mb-1 text-gray-700 flex items-center gap-2";
 
   function Field({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode; }) {
@@ -347,6 +401,18 @@ export default function ClassForm() {
       </div>
     );
   }
+
+  // ====== Time UI: pilih jam, menit default 00 ======
+  const hourVal = (form.time?.split(":")[0] ?? "");
+  const minuteVal = (form.time?.split(":")[1] ?? "00");
+  const setHour = (h: string) => {
+    if (!h) {
+      setForm((p) => ({ ...p, time: "" }));
+    } else {
+      // saat ganti jam, kunci menit = 00
+      setForm((p) => ({ ...p, time: `${h}:00` }));
+    }
+  };
 
   const handleLogout = async () => {
     await signOut(auth);
@@ -362,21 +428,53 @@ export default function ClassForm() {
 
         <main className="flex-1 p-4 sm:p-6 md:p-10">
           <div className="mb-6 flex items-center justify-between">
-            <button type="button" onClick={() => router.back()} className="inline-flex items-center gap-2 text-sm text-slate-700 hover:text-black transition-colors" aria-label="Kembali">
+            <button
+              type="button"
+              onClick={() => router.back()}
+              className="inline-flex items-center gap-2 text-sm text-slate-700 hover:text-black transition-colors"
+              aria-label="Kembali"
+            >
               <ArrowLeft className="h-4 w-4" /> Kembali
             </button>
             <h1 className="text-xl sm:text-2xl font-bold text-slate-800">{headerTitle}</h1>
           </div>
 
           {notice && (
-            <div role="status" className={`mb-4 flex items-start gap-3 rounded-xl p-3 ${notice.kind === "success" ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-700 border border-red-200"}`}>
-              {notice.kind === "success" ? <CheckCircle2 className="mt-0.5 h-5 w-5" /> : <XCircle className="mt-0.5 h-5 w-5" />}
+            <div
+              role="status"
+              className={`mb-4 flex items-start gap-3 rounded-xl p-3 ${
+                notice.kind === "success"
+                  ? "bg-green-50 text-green-700 border border-green-200"
+                  : notice.kind === "error"
+                  ? "bg-red-50 text-red-700 border border-red-200"
+                  : "bg-sky-50 text-sky-700 border border-sky-200"
+              }`}
+            >
+              {notice.kind === "success" ? (
+                <CheckCircle2 className="mt-0.5 h-5 w-5" />
+              ) : notice.kind === "error" ? (
+                <XCircle className="mt-0.5 h-5 w-5" />
+              ) : (
+                <AlertCircle className="mt-0.5 h-5 w-5" />
+              )}
               <div className="flex-1 text-sm">{notice.text}</div>
-              <button type="button" onClick={() => setNotice(null)} className="ml-2 text-xs underline decoration-dotted" aria-label="Tutup notifikasi">Tutup</button>
+              <button
+                type="button"
+                onClick={() => setNotice(null)}
+                className="ml-2 text-xs underline decoration-dotted"
+                aria-label="Tutup notifikasi"
+              >
+                Tutup
+              </button>
             </div>
           )}
 
-          <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className={`max-w-4xl mx-auto ${BRAND.card} p-5 sm:p-8`}>
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+            className={`max-w-4xl mx-auto ${BRAND.card} p-5 sm:p-8`}
+          >
             {initialLoading ? (
               <div className="animate-pulse space-y-4">
                 <div className="h-5 w-40 rounded bg-slate-200" />
@@ -394,12 +492,28 @@ export default function ClassForm() {
                 {/* Nama/Jenis Kelas */}
                 <div className="md:col-span-2">
                   <label className={labelBase}><TypeIcon className="h-5 w-5 text-slate-600" /><span>Nama/Jenis Kelas</span></label>
-                  <select name="className" value={form.className} onChange={handleClassNameChange} required className={inputBase} aria-label="Pilih kelas">
+                  <select
+                    name="className"
+                    value={form.className}
+                    onChange={handleClassNameChange}
+                    required
+                    className={inputBase}
+                    aria-label="Pilih kelas"
+                  >
                     <option value="">Pilih Kelas</option>
                     {CLASS_NAMES.map((name) => <option key={name} value={name}>{name}</option>)}
                   </select>
                   {form.className === "Lainnya" && (
-                    <input type="text" name="customClassName" placeholder="Nama kelas custom…" value={form.customClassName} onChange={(e) => setForm((prev) => ({ ...prev, customClassName: e.target.value }))} className={`${inputBase} mt-2`} required aria-label="Nama kelas custom" />
+                    <input
+                      type="text"
+                      name="customClassName"
+                      placeholder="Nama kelas custom…"
+                      value={form.customClassName}
+                      onChange={(e) => setForm((prev) => ({ ...prev, customClassName: e.target.value }))}
+                      className={`${inputBase} mt-2`}
+                      required
+                      aria-label="Nama kelas custom"
+                    />
                   )}
                 </div>
 
@@ -407,8 +521,30 @@ export default function ClassForm() {
                 <Field icon={<Calendar className="h-5 w-5 text-slate-600" />} label="Tanggal">
                   <input type="date" name="date" value={form.date} onChange={handleChange} required className={inputBase} />
                 </Field>
-                <Field icon={<Clock className="h-5 w-5 text-slate-600" />} label="Jam">
-                  <input type="time" name="time" value={form.time} onChange={handleChange} required className={inputBase} />
+
+                <Field icon={<Clock className="h-5 w-5 text-slate-600" />} label="Jam (menit terkunci 00)">
+                  <div className="flex items-center gap-2">
+                    <select
+                      aria-label="Pilih jam (00-23)"
+                      value={hourVal}
+                      onChange={(e) => setHour(e.target.value)}
+                      className={`${inputBase} w-32`}
+                      required
+                    >
+                      <option value="">-- Jam --</option>
+                      {hours.map((h) => (
+                        <option key={h} value={h}>{h}</option>
+                      ))}
+                    </select>
+                    <span className="font-semibold">:</span>
+                    <input
+                      value={minuteVal || "00"}
+                      readOnly
+                      className={`${inputBase} w-24 bg-gray-50 cursor-not-allowed`}
+                      aria-label="Menit terkunci 00"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Saat mengganti jam, menit otomatis menjadi 00.</p>
                 </Field>
 
                 {/* Coach, Slot */}
@@ -418,8 +554,15 @@ export default function ClassForm() {
                     {coaches.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
                   </select>
                 </Field>
+
                 <Field icon={<Boxes className="h-5 w-5 text-slate-600" />} label="Kapasitas Slot">
-                  <input type="number" name="slots" value={form.slots} onChange={handleChange} inputMode="numeric" min={1} className={inputBase} placeholder="cth: 20" required />
+                  <NumericInput
+                    value={form.slots}
+                    placeholder="cth: 20"
+                    required
+                    className={inputBase}
+                    onChange={setNum("slots")}
+                  />
                 </Field>
 
                 {/* Level, Deskripsi */}
@@ -437,10 +580,22 @@ export default function ClassForm() {
 
                 {/* Durasi, Kalori */}
                 <Field icon={<Timer className="h-5 w-5 text-slate-600" />} label="Durasi (menit)">
-                  <input type="number" name="duration" value={form.duration} onChange={handleChange} inputMode="numeric" min={1} className={inputBase} placeholder="cth: 60" required />
+                  <NumericInput
+                    value={form.duration}
+                    placeholder="cth: 60"
+                    required
+                    className={inputBase}
+                    onChange={setNum("duration")}
+                  />
                 </Field>
                 <Field icon={<Flame className="h-5 w-5 text-slate-600" />} label="Kalori Burn">
-                  <input type="number" name="calorieBurn" value={form.calorieBurn} onChange={handleChange} inputMode="numeric" min={0} className={inputBase} placeholder="cth: 300" required />
+                  <NumericInput
+                    value={form.calorieBurn}
+                    placeholder="cth: 300"
+                    required
+                    className={inputBase}
+                    onChange={setNum("calorieBurn")}
+                  />
                 </Field>
 
                 {/* === NEW: TAGS === */}
@@ -487,10 +642,16 @@ export default function ClassForm() {
                 {form.accessMode === "whitelist" && (
                   <div className="md:col-span-2">
                     <label className={labelBase}><TypeIcon className="h-5 w-5 text-slate-600" /><span>Paket yang Diizinkan</span></label>
-                    <select multiple className={inputBase} value={form.allowedPackageIds} onChange={(e) => {
-                      const vals = Array.from(e.target.selectedOptions).map((o) => o.value);
-                      setForm((prev) => ({ ...prev, allowedPackageIds: vals }));
-                    }} required>
+                    <select
+                      multiple
+                      className={inputBase}
+                      value={form.allowedPackageIds}
+                      onChange={(e) => {
+                        const vals = Array.from(e.target.selectedOptions).map((o) => o.value);
+                        setForm((prev) => ({ ...prev, allowedPackageIds: vals }));
+                      }}
+                      required
+                    >
                       {packages.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                     <p className="text-xs text-gray-500 mt-1">Tahan CTRL/⌘ untuk pilih banyak.</p>
@@ -506,19 +667,17 @@ export default function ClassForm() {
                       <span>Izinkan</span>
                     </label>
                     {form.allowDropIn && (
-                      <input
-                        type="number"
-                        min={1}
-                        placeholder="Harga drop-in (Rp)"
-                        className={inputBase}
+                      <NumericInput
                         value={form.dropInPrice}
-                        onChange={(e) => setForm((p) => ({ ...p, dropInPrice: e.target.value }))}
+                        placeholder="Harga drop-in (Rp)"
                         required
-                      />
+                        className={`${inputBase} w-56`}
+                        onChange={setNum("dropInPrice")}
+                    />
                     )}
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    * Member dengan paket yang meng‑include TAG/whitelist kelas TIDAK bayar lagi. Drop‑in hanya untuk non‑eligible.
+                    * Member dengan paket yang meng-include TAG/whitelist kelas TIDAK bayar lagi. Drop-in hanya untuk non-eligible.
                   </p>
                 </div>
 
@@ -529,7 +688,15 @@ export default function ClassForm() {
                   {imageError && <div className="text-red-600 text-xs mt-1">{imageError}</div>}
                   {(imagePreview || form.imageUrl) && (
                     <div className="mt-3">
-                      <Image src={imagePreview || form.imageUrl} alt="Preview" width={700} height={260} className="rounded-xl object-cover ring-1 ring-slate-200" unoptimized priority />
+                      <Image
+                        src={imagePreview || form.imageUrl}
+                        alt="Preview"
+                        width={700}
+                        height={260}
+                        className="rounded-xl object-cover ring-1 ring-slate-200"
+                        unoptimized
+                        priority
+                      />
                     </div>
                   )}
                   <p className="text-xs text-gray-500 mt-1">* Gambar wajib ada dan harus landscape (width &gt; height).</p>
@@ -537,7 +704,12 @@ export default function ClassForm() {
 
                 {/* Actions */}
                 <div className="md:col-span-2">
-                  <button type="submit" disabled={loading} className="w-full inline-flex justify-center items-center gap-2 bg-[#97CCDD] text-slate-900 font-semibold py-3 rounded-xl shadow hover:opacity-90 transition disabled:opacity-60" aria-busy={loading}>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full inline-flex justify-center items-center gap-2 bg-[#97CCDD] text-slate-900 font-semibold py-3 rounded-xl shadow hover:opacity-90 transition disabled:opacity-60"
+                    aria-busy={loading}
+                  >
                     {loading ? (<><Save className="h-5 w-5 animate-spin" />Menyimpan…</>) : (<><CheckCircle2 className="h-5 w-5" />Simpan Kelas</>)}
                   </button>
                 </div>
