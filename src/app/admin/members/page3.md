@@ -1,4 +1,4 @@
-// src/app/admin/members/page.tsx
+// src\app\admin\members\page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -36,9 +36,8 @@ import {
   Calculator,
   Phone,
   IdCard,
-  MoonStar,
+  MoonStar, // NEW: ikon toggle tema
   Sun,
-  Tag, // icon kecil utk member code
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
@@ -188,7 +187,6 @@ interface Member {
   memberType?: string; // id paket
   gender?: string;
   address?: string;
-  memberCode?: string | null; // <-- NEW
 }
 
 interface UserRaw {
@@ -208,7 +206,6 @@ interface UserRaw {
   memberType?: string;
   gender?: string;
   address?: string;
-  memberCode?: string | null; // <-- NEW
 }
 
 type Duration = "Harian" | "Bulanan" | "Tahunan";
@@ -255,7 +252,6 @@ type MemberLite = {
   expiresAt?: DateLike;
   photoURL?: string | null;
   qrData?: string | null;
-  memberCode?: string | null; // <-- NEW
 };
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
@@ -270,10 +266,10 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 function MemberCard({
   data,
   cardRef,
-  dark = true,
+  dark = true, // default gelap
 }: {
   data: MemberLite;
-  cardRef: React.RefObject<HTMLDivElement | null>;
+  cardRef: React.RefObject<HTMLDivElement | null >;
   dark?: boolean;
 }) {
   const wa = phoneToWa(data.phone);
@@ -329,11 +325,13 @@ function MemberCard({
       <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-5">
         {/* Foto + QR */}
         <div className="md:col-span-1 flex flex-col items-center gap-3">
+          {/* Frame foto: TANPA shorthand background -> aman ESLint */}
           <div
             className="rounded-2xl p-[4px] w-[188px]"
             style={{
               borderRadius: 18,
               border: "1px solid transparent",
+              // 2-layer background (base + gradient border) pakai backgroundImage + clip
               backgroundImage: dark
                 ? "linear-gradient(#0e1520,#0e1520),linear-gradient(180deg, rgba(151,204,221,0.35), rgba(221,196,151,0.25))"
                 : "linear-gradient(#ffffff,#ffffff),linear-gradient(180deg, rgba(151,204,221,0.35), rgba(221,196,151,0.25))",
@@ -357,6 +355,7 @@ function MemberCard({
             </div>
           </div>
 
+          {/* QR kapsul kaca */}
           <div
             className="p-3 rounded-2xl border backdrop-blur"
             style={{
@@ -372,6 +371,7 @@ function MemberCard({
             />
           </div>
 
+          {/* Holo strip */}
           <div
             className="w-[188px] h-2 rounded-full"
             style={{
@@ -383,7 +383,7 @@ function MemberCard({
           />
         </div>
 
-        {/* Detail */}
+        {/* Detail panel kaca */}
         <div
           className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm rounded-2xl p-5 border"
           style={{
@@ -396,7 +396,6 @@ function MemberCard({
         >
           <Field label="Nama" value={data.name} />
           <Field label="Member ID" value={data.id || "-"} />
-          <Field label="Member Code" value={data.memberCode || "-"} />{/* NEW */}
           <Field
             label="Nomor Telepon"
             value={
@@ -427,6 +426,7 @@ function MemberCard({
         </div>
       </div>
 
+      {/* noise overlay (non-shorthand) */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0"
@@ -437,6 +437,7 @@ function MemberCard({
           mixBlendMode: dark ? "soft-light" : "multiply",
         }}
       />
+
       <div className="h-1.5 w-full" style={{ backgroundColor: dark ? "#152635" : colors.base }} />
     </div>
   );
@@ -449,6 +450,7 @@ function MemberMiniCard({
   data: MemberLite;
   cardRef: React.RefObject<HTMLDivElement | null>;
 }) {
+  // rasio kartu bank 85.6×54mm ≈ 1.586. Kita render ~792×500 px biar tajam
   return (
     <div
       ref={cardRef}
@@ -490,7 +492,6 @@ function MemberMiniCard({
         <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
           <Field label="Nama" value={data.name} />
           <Field label="ID" value={data.id || "-"} />
-          <Field label="Member Code" value={data.memberCode || "-"} />{/* NEW */}
           <Field label="Telepon" value={data.phone || "-"} />
           <Field label="Expired" value={data.expiresAt ? formatDate(data.expiresAt) : "-"} />
           <div className="col-span-2">
@@ -509,8 +510,9 @@ function MemberMiniCard({
   );
 }
 
+
 /* ================== Component ================== */
-type PayMethod = "cash" | "qris" | "transfer" | "other";
+type PayMethod = "cash" | "qris" | "transfer" | "other"; // NEW
 
 export default function AdminMembersPage() {
   const [loading, setLoading] = useState(true);
@@ -521,16 +523,16 @@ export default function AdminMembersPage() {
   const [isDrawerOpen, setDrawerOpen] = useState(false);
   const [modalImage, setModalImage] = useState<string | null>(null);
 
-  // QR simple
+  // QR (kartu QR sederhana)
   const [qrValue, setQrValue] = useState<string | null>(null);
   const [qrMemberName, setQrMemberName] = useState<string>("");
 
-  // Member Card
+  // Member Card (QR + detail + export)
   const [cardOpen, setCardOpen] = useState(false);
   const [cardMember, setCardMember] = useState<MemberLite | null>(null);
-  const cardRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null); // ESLint/TS safe
   const miniCardRef = useRef<HTMLDivElement>(null);
-  const [cardDark, setCardDark] = useState(true);
+  const [cardDark, setCardDark] = useState(true); // NEW: tema default gelap
   const [exportingCard, setExportingCard] = useState<"png" | "pdf" | null>(null);
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -539,7 +541,7 @@ export default function AdminMembersPage() {
   const [onlyExpiringSoon, setOnlyExpiringSoon] = useState(false);
   const pageSize = 10;
 
-  // daftar paket
+  // daftar paket untuk dropdown
   const [packages, setPackages] = useState<Array<{ id: string } & MembershipPackageDoc>>([]);
 
   // State pembayaran
@@ -552,7 +554,7 @@ export default function AdminMembersPage() {
   const [payFilePreview, setPayFilePreview] = useState<string | null>(null);
   const [payFileError, setPayFileError] = useState<string>("");
   const [payNotes, setPayNotes] = useState<string>("");
-  const [payPackageId, setPayPackageId] = useState<string>("");
+  const [payPackageId, setPayPackageId] = useState<string>(""); // paket dipilih
 
   // NEW: metode pembayaran
   const [payMethod, setPayMethod] = useState<PayMethod>("cash");
@@ -612,7 +614,6 @@ export default function AdminMembersPage() {
           memberType: d.memberType ?? "",
           gender: d.gender,
           address: d.address,
-          memberCode: d.memberCode ?? null, // <-- NEW
         });
       });
       setMembers(data);
@@ -632,6 +633,8 @@ export default function AdminMembersPage() {
     return price * cycles;
   }, [selectedPkg, payMonth]);
 
+  const unitLabel =
+    selectedPkg?.duration === "Tahunan" ? "tahun" : selectedPkg?.duration === "Bulanan" ? "bulan" : "hari";
 
   /* ========== CRUD soft delete/restore ========== */
   const handleDelete = async (id: string) => {
@@ -653,8 +656,7 @@ export default function AdminMembersPage() {
       const matchesSearch =
         (m.name || "").toLowerCase().includes(term) ||
         (m.email || "").toLowerCase().includes(term) ||
-        (m.phone || "").toLowerCase().includes(term) ||
-        (m.memberCode || "").toLowerCase().includes(term); // cari juga by memberCode
+        (m.phone || "").toLowerCase().includes(term);
       const matchesStatus = statusFilter ? m.status === statusFilter : true;
       const matchesDeleted = showDeleted ? m.deleted : !m.deleted;
 
@@ -745,7 +747,6 @@ export default function AdminMembersPage() {
       expiresAt: m.expiresAt,
       photoURL: m.photoURL,
       qrData: m.qrData || JSON.stringify({ type: "member", id: m.id, name: m.name }),
-      memberCode: m.memberCode ?? null, // NEW
     });
     setCardOpen(true);
   };
@@ -788,12 +789,12 @@ export default function AdminMembersPage() {
   };
 
   const downloadMiniCardPNG = async () => {
-    if (!miniCardRef.current || !cardMember) return;
-    const dataUrl = await toPng(miniCardRef.current, { pixelRatio: 3, cacheBust: true, backgroundColor: "#0B0F14" });
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = `member-mini-${(cardMember.name || "member").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.png`;
-    a.click();
+  if (!miniCardRef.current || !cardMember) return;
+  const dataUrl = await toPng(miniCardRef.current, { pixelRatio: 3, cacheBust: true, backgroundColor: "#0B0F14" });
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = `member-mini-${(cardMember.name || "member").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.png`;
+  a.click();
   };
   const downloadMiniCardPDF = async () => {
     if (!miniCardRef.current || !cardMember) return;
@@ -806,11 +807,13 @@ export default function AdminMembersPage() {
     pdf.save(`member-mini-${(cardMember.name || "member").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.pdf`);
   };
 
+
   /* ========== Modal Pembayaran ========== */
   const openPayModal = (member: Member) => {
     setSelectedMember(member);
     setShowPayModal(true);
 
+    // default paket
     if (member.memberType && packageMap[member.memberType]) {
       setPayPackageId(member.memberType);
     } else if (packages.length > 0) {
@@ -819,16 +822,20 @@ export default function AdminMembersPage() {
       setPayPackageId("");
     }
 
+    // reset
     setPayMonth(1);
     setPayNominal("");
     setPayFile(null);
     setPayFilePreview(null);
     setPayFileError("");
     setPayNotes("");
+
+    // NEW: default metode disarankan cash/tunai
     setPayMethod("cash");
     setPayMethodCustom("");
   };
 
+  // isi paket otomatis saat modal sudah kebuka & list paket baru datang
   useEffect(() => {
     if (showPayModal && !payPackageId && packages.length > 0) {
       setPayPackageId(
@@ -917,8 +924,11 @@ export default function AdminMembersPage() {
         memberType: payPackageId,
       });
 
-      const methodFinal: string = payMethod === "other" ? (payMethodCustom.trim() || "other") : payMethod;
+      // Metode final
+      const methodFinal: string =
+        payMethod === "other" ? (payMethodCustom.trim() || "other") : payMethod;
 
+      // Siapkan data pembayaran
       const priceNumber = parseRupiahToNumber(payNominal) || computedTotal || 0;
       const created = Timestamp.now();
 
@@ -933,7 +943,7 @@ export default function AdminMembersPage() {
         approvedAt: null,
         approvedBy: "",
         proofUrl: fileURL,
-        method: methodFinal,
+        method: methodFinal, // NEW: simpan metode
         status: "success",
         expiresAt: ts,
         packageId: payPackageId,
@@ -941,7 +951,6 @@ export default function AdminMembersPage() {
         packagePrice: selectedPkg.price,
         notes: payNotes || "",
         admin: "admin",
-        memberCode: selectedMember.memberCode ?? null, // <-- ikut disimpan
       };
 
       await addDoc(collection(db, "payments"), paymentDoc);
@@ -1012,7 +1021,7 @@ export default function AdminMembersPage() {
           <div className="flex-1 flex flex-col sm:flex-row gap-3">
             <input
               type="text"
-              placeholder="Cari nama, email, nomor telepon, atau member code"
+              placeholder="Cari nama, email, atau nomor telepon"
               className="w-full sm:flex-1 border rounded-xl px-4 py-2"
               value={searchTerm}
               onChange={(e) => {
@@ -1108,7 +1117,6 @@ export default function AdminMembersPage() {
             <thead style={{ background: `linear-gradient(90deg, ${colors.darker}, ${colors.dark})`, color: colors.textLight }}>
               <tr>
                 <th className="p-4 text-left">Nama</th>
-                <th className="p-4 text-left">Member Code</th>{/* NEW */}
                 <th className="p-4 text-left">Nomor HP</th>
                 <th className="p-4 text-left">Email</th>
                 <th className="p-4 text-left">Tipe Member</th>
@@ -1124,7 +1132,7 @@ export default function AdminMembersPage() {
               {loading ? (
                 Array.from({ length: 8 }).map((_, i) => (
                   <tr key={`skeleton-${i}`}>
-                    {Array.from({ length: 11 }).map((__, j) => ( // 11 kolom sekarang
+                    {Array.from({ length: 10 }).map((__, j) => (
                       <td key={`sk-${i}-${j}`} className="p-4">
                         <div className="h-5 bg-gray-200 rounded animate-pulse" />
                       </td>
@@ -1147,12 +1155,6 @@ export default function AdminMembersPage() {
                       style={{ borderColor: colors.light }}
                     >
                       <td className="p-4 font-semibold" style={{ color: colors.text }}>{member.name}</td>
-                      <td className="p-4">
-                        <span className="inline-flex items-center gap-1 font-mono text-sm px-2 py-0.5 rounded bg-slate-100">
-                          <Tag className="w-3.5 h-3.5" />
-                          {member.memberCode || "-"}
-                        </span>
-                      </td>
                       <td className="p-4 text-gray-700">
                         {member.phone || "-"}
                         {member.phone && (
@@ -1251,6 +1253,7 @@ export default function AdminMembersPage() {
                             <QrCode className="w-4 h-4" />
                           </button>
                         )}
+                        {/* tombol Member Card */}
                         <button
                           onClick={() => openCardModal(member)}
                           className="p-2 rounded-full text-white hover:scale-110 transition"
@@ -1294,7 +1297,6 @@ export default function AdminMembersPage() {
             {/* Info member */}
             <div className="mb-4 text-sm">
               <div className="mb-1"><b>Nama:</b> {selectedMember.name}</div>
-              <div className="mb-1"><b>Kode Member:</b> {selectedMember.memberCode || "-"}</div>{/* NEW */}
               <div className="mb-1"><b>Email:</b> {selectedMember.email}</div>
               <div className="mb-1">
                 <b>Status:</b>{" "}
@@ -1331,19 +1333,19 @@ export default function AdminMembersPage() {
               )}
             </div>
 
-            {/* Pilih siklus */}
+            {/* Pilih siklus (kecuali Harian) */}
             {selectedPkg?.duration !== "Harian" ? (
               <div className="mb-3">
-                <label className="block mb-1 font-semibold">Perpanjang Berapa {selectedPkg?.duration === "Tahunan" ? "tahun" : "bulan"}?</label>
+                <label className="block mb-1 font-semibold">Perpanjang Berapa {unitLabel}?</label>
                 <select
                   value={payMonth}
                   onChange={(e) => setPayMonth(Number(e.target.value))}
                   className="border px-3 py-2 rounded w-full"
                 >
-                  <option value={1}>1 {selectedPkg?.duration === "Tahunan" ? "tahun" : "bulan"}</option>
-                  <option value={3}>3 {selectedPkg?.duration === "Tahunan" ? "tahun" : "bulan"}</option>
-                  <option value={6}>6 {selectedPkg?.duration === "Tahunan" ? "tahun" : "bulan"}</option>
-                  <option value={12}>12 {selectedPkg?.duration === "Tahunan" ? "tahun" : "bulan"}</option>
+                  <option value={1}>1 {unitLabel}</option>
+                  <option value={3}>3 {unitLabel}</option>
+                  <option value={6}>6 {unitLabel}</option>
+                  <option value={12}>12 {unitLabel}</option>
                 </select>
               </div>
             ) : (
@@ -1355,7 +1357,7 @@ export default function AdminMembersPage() {
               </div>
             )}
 
-            {/* Metode Pembayaran */}
+            {/* NEW: Metode Pembayaran */}
             <div className="mb-3">
               <div className="flex items-center justify-between">
                 <label className="block mb-1 font-semibold">Metode Pembayaran</label>
@@ -1409,7 +1411,7 @@ export default function AdminMembersPage() {
               {selectedPkg && (
                 <div className="mt-1 text-xs text-gray-600">
                   Perhitungan otomatis: <b>Rp {computedTotal.toLocaleString("id-ID")}</b> (Rp {selectedPkg.price.toLocaleString("id-ID")} ×{" "}
-                  {selectedPkg.duration === "Harian" ? 1 : Math.max(1, payMonth)} {selectedPkg.duration === "Tahunan" ? "tahun" : selectedPkg.duration === "Bulanan" ? "bulan" : "hari"})
+                  {selectedPkg.duration === "Harian" ? 1 : Math.max(1, payMonth)} {unitLabel})
                 </div>
               )}
             </div>
