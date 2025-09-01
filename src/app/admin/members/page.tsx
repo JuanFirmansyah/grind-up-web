@@ -1341,6 +1341,7 @@ export default function AdminMembersPage() {
                   className="border px-3 py-2 rounded w-full"
                 >
                   <option value={1}>1 {selectedPkg?.duration === "Tahunan" ? "tahun" : "bulan"}</option>
+                  <option value={2}>2 {selectedPkg?.duration === "Tahunan" ? "tahun" : "bulan"}</option>
                   <option value={3}>3 {selectedPkg?.duration === "Tahunan" ? "tahun" : "bulan"}</option>
                   <option value={6}>6 {selectedPkg?.duration === "Tahunan" ? "tahun" : "bulan"}</option>
                   <option value={12}>12 {selectedPkg?.duration === "Tahunan" ? "tahun" : "bulan"}</option>
