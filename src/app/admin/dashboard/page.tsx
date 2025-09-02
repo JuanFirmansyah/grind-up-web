@@ -13,6 +13,7 @@ import {
   query,
   where,
   getDocs,
+  getDoc,
   type Timestamp,
   doc,
   setDoc,
@@ -48,6 +49,11 @@ const navItems = [
   { label: "Pelatih Pribadi", href: "/admin/personal-trainer" },
   { label: "Galeri", href: "/admin/gallery" },
 ];
+
+// === Firestore paths untuk modul absensi ===
+const GYM_ID = "default"; // ganti kalau kamu pakai gym id lain
+const dateKeyYYYYMMDD = (d: Date) => dayjs(d).format("YYYYMMDD");   // contoh: 20250831
+const dateKeyDashed    = (d: Date) => dayjs(d).format("YYYY-MM-DD"); // contoh: 2025-08-31
 
 type CoachType = {
   name: string;
@@ -218,10 +224,37 @@ export default function AdminDashboard() {
           }
         });
 
+        // ========= Attendance Today (harian) =========
+        let attendanceToday = 0;
+        try {
+          // 3a. Coba baca ringkasan harian di gyms/default/daily_attendance/{YYYYMMDD}
+          const todayKeyCompact = dateKeyYYYYMMDD(today);      // "20250831"
+          const dailyDocRef = doc(db, "gyms", GYM_ID, "daily_attendance", todayKeyCompact);
+          const dailySnap = await getDoc(dailyDocRef);
+
+          if (dailySnap.exists()) {
+            const dd = dailySnap.data() as { count?: number };
+            if (typeof dd.count === "number") attendanceToday = dd.count;
+          }
+
+          // 3b. Fallback: kalau doc ringkasan belum ada, hitung dari koleksi checkins (filter dateKey)
+          if (!attendanceToday) {
+            const todayKeyDashed = dateKeyDashed(today);       // "2025-08-31"
+            const qCheckins = query(
+              collection(db, "gyms", GYM_ID, "checkins"),
+              where("dateKey", "==", todayKeyDashed)
+            );
+            const snapCheckins = await getDocs(qCheckins);
+            attendanceToday = snapCheckins.size;
+          }
+        } catch {
+          // diamkan saja: biarkan attendanceToday = 0 jika ada error
+        }
+
         setStats({
           totalMembers,
           upcomingClasses,
-          attendanceToday: 0,
+          attendanceToday,
           expiringSoon,
           expired,
           pendingPayments,
