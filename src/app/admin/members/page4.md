@@ -38,8 +38,7 @@ import {
   IdCard,
   MoonStar,
   Sun,
-  Tag,
-  Calendar, // Icon baru untuk edit expiry
+  Tag, // icon kecil utk member code
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
@@ -319,10 +318,10 @@ function MemberCard({
           className="relative text-[11px] font-bold px-3 py-1 rounded-full border backdrop-blur"
           style={{
             borderColor: dark ? "rgba(151,204,221,0.35)" : colors.light,
-            background: dark ? "rgada(255,255,255,0.06)" : "rgba(255,255,255,0.7)",
+            background: dark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.7)",
           }}
         >
-          MEMER CARD
+          MEMBER CARD
         </div>
       </div>
 
@@ -558,11 +557,6 @@ export default function AdminMembersPage() {
   // NEW: metode pembayaran
   const [payMethod, setPayMethod] = useState<PayMethod>("cash");
   const [payMethodCustom, setPayMethodCustom] = useState<string>("");
-
-  // NEW: State untuk edit manual expiry
-  const [showEditExpiryModal, setShowEditExpiryModal] = useState(false);
-  const [editExpiryMember, setEditExpiryMember] = useState<Member | null>(null);
-  const [newExpiryDate, setNewExpiryDate] = useState("");
 
   const router = useRouter();
 
@@ -881,46 +875,6 @@ export default function AdminMembersPage() {
     setPayNominal(formatRupiahInput(String(computedTotal)));
   };
 
-  /* ========== Fungsi Edit Expiry Manual ========== */
-  const openEditExpiryModal = (member: Member) => {
-    setEditExpiryMember(member);
-    // Format tanggal untuk input type="date" (YYYY-MM-DD)
-    const currentExpiry = toJSDate(member.expiresAt);
-    setNewExpiryDate(
-      currentExpiry 
-        ? format(currentExpiry, "yyyy-MM-dd")
-        : format(new Date(), "yyyy-MM-dd")
-    );
-    setShowEditExpiryModal(true);
-  };
-
-  const handleSaveExpiry = async () => {
-    if (!editExpiryMember || !newExpiryDate) return;
-    
-    try {
-      const newDate = new Date(newExpiryDate);
-      newDate.setHours(23, 59, 59, 999); // Set to end of day
-      
-      await updateDoc(doc(db, "users", editExpiryMember.id), {
-        expiresAt: Timestamp.fromDate(newDate)
-      });
-      
-      // Update local state
-      setMembers(prev => prev.map(m => 
-        m.id === editExpiryMember.id 
-          ? { ...m, expiresAt: newDate } 
-          : m
-      ));
-      
-      setShowEditExpiryModal(false);
-      alert("Tanggal expired berhasil diupdate!");
-    } catch (error) {
-      console.error("Error updating expiry:", error);
-      alert("Gagal update tanggal expired!");
-    }
-  };
-
-  /* ========== Perbaikan Logika Perpanjangan di handlePay ========== */
   const handlePay = async () => {
     if (!selectedMember) return;
     if (!payFile) {
@@ -934,20 +888,10 @@ export default function AdminMembersPage() {
 
     setPayLoading(true);
     try {
-      // PERBAIKAN: Hitung expiry baru berdasarkan 3 kondisi
+      // Hitung expiry baru
       const now = new Date();
-      let startDate = now;
-      
-      // Kondisi 1: Jika member sudah punya expiredAt dan masih valid
-      if (selectedMember.expiresAt) {
-        const currentExpiry = toJSDate(selectedMember.expiresAt);
-        if (currentExpiry && currentExpiry > now) {
-          // Kondisi 2: Perpanjang sebelum expired - mulai dari expiredAt terakhir
-          startDate = currentExpiry;
-        }
-        // Kondisi 3: Jika sudah expired, tetap pakai now (hari ini)
-      }
-      // Kondisi 1: Jika belum ada expiredAt, pakai now (hari ini)
+      const currentExpiry = toJSDate(selectedMember.expiresAt) ?? now;
+      const startDate = currentExpiry > now ? currentExpiry : now;
 
       const newExpiry = new Date(startDate);
       if (selectedPkg.duration === "Harian") {
@@ -997,7 +941,7 @@ export default function AdminMembersPage() {
         packagePrice: selectedPkg.price,
         notes: payNotes || "",
         admin: "admin",
-        memberCode: selectedMember.memberCode ?? null,
+        memberCode: selectedMember.memberCode ?? null, // <-- ikut disimpan
       };
 
       await addDoc(collection(db, "payments"), paymentDoc);
@@ -1011,8 +955,7 @@ export default function AdminMembersPage() {
 
       closePayModal();
       alert("Pembayaran berhasil disimpan!");
-    } catch (error) {
-      console.error("Error processing payment:", error);
+    } catch {
       alert("Gagal menyimpan pembayaran!");
     } finally {
       setPayLoading(false);
@@ -1287,16 +1230,6 @@ export default function AdminMembersPage() {
                             >
                               <DollarSign className="w-4 h-4" />
                             </button>
-                            {/* NEW: Tombol Edit Expiry Manual */}
-                            <button
-                              onClick={() => openEditExpiryModal(member)}
-                              className="p-2 rounded-full text-white hover:scale-110 transition"
-                              style={{ background: "#f59e0b" }}
-                              aria-label="Edit Expiry"
-                              title="Edit Expiry Manual"
-                            >
-                              <Calendar className="w-4 h-4" />
-                            </button>
                           </>
                         ) : (
                           <button
@@ -1519,49 +1452,6 @@ export default function AdminMembersPage() {
               {payFileError && <div className="mt-2 text-red-500 text-sm">{payFileError}</div>}
             </div>
           </>
-        )}
-      </Modal>
-
-      {/* MODAL: Edit Expiry Manual */}
-      <Modal
-        open={showEditExpiryModal && !!editExpiryMember}
-        onClose={() => setShowEditExpiryModal(false)}
-        widthClass="max-w-md"
-        title="Edit Tanggal Expiry Manual"
-        footer={
-          <button
-            onClick={handleSaveExpiry}
-            className="w-full text-white py-3 rounded-lg font-bold"
-            style={{ background: "#f59e0b" }}
-          >
-            Simpan Perubahan
-          </button>
-        }
-      >
-        {editExpiryMember && (
-          <div>
-            <div className="mb-4">
-              <div className="font-semibold">Member: {editExpiryMember.name}</div>
-              <div className="text-sm text-gray-600">
-                Expiry saat ini: {formatDate(editExpiryMember.expiresAt)}
-              </div>
-            </div>
-            
-            <div className="mb-3">
-              <label className="block mb-1 font-semibold">Tanggal Expiry Baru</label>
-              <input
-                type="date"
-                value={newExpiryDate}
-                onChange={(e) => setNewExpiryDate(e.target.value)}
-                className="border px-3 py-2 rounded w-full"
-                min={format(new Date(), "yyyy-MM-dd")} // Tidak boleh memilih tanggal kemarin
-              />
-            </div>
-            
-            <div className="text-xs text-gray-500">
-              Catatan: Mengatur tanggal expiry manual akan mengabaikan perhitungan otomatis berdasarkan paket membership.
-            </div>
-          </div>
         )}
       </Modal>
 

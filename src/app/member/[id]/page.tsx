@@ -36,6 +36,11 @@ interface UserDoc {
   profileURL?: string;  // fallback lama (opsional)
   expiresAt?: MaybeTimestamp;
   memberType?: string;
+  memberCode?: string | null; // NEW: member code
+  gender?: string;      // NEW: jenis kelamin
+  address?: string;     // NEW: alamat
+  phone?: string;       // NEW: nomor telepon
+  email?: string;       // NEW: email
 }
 
 interface PackageDoc {
@@ -53,6 +58,11 @@ interface MemberData {
   profileURL?: string;
   expiresAt?: MaybeTimestamp;
   memberType?: string;
+  memberCode?: string | null; // NEW: member code
+  gender?: string;      // NEW: jenis kelamin
+  address?: string;     // NEW: alamat
+  phone?: string;       // NEW: nomor telepon
+  email?: string;       // NEW: email
 }
 
 function toDateValue(v: MaybeTimestamp): Date | null {
@@ -112,6 +122,11 @@ export default function MemberProfilePage() {
           profileURL: d.profileURL ?? "",
           expiresAt: d.expiresAt ?? null,
           memberType: d.memberType ?? "",
+          memberCode: d.memberCode ?? null, // NEW: member code
+          gender: d.gender ?? "",           // NEW: jenis kelamin
+          address: d.address ?? "",         // NEW: alamat
+          phone: d.phone ?? "",             // NEW: nomor telepon
+          email: d.email ?? "",             // NEW: email
         });
 
         // Ambil nama paket (ketik collection juga)
@@ -324,6 +339,43 @@ export default function MemberProfilePage() {
               </span>
             </div>
 
+            {/* NEW: Tampilkan informasi tambahan */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3 text-sm text-gray-700">
+              {data.memberCode && (
+                <div>
+                  <span className="font-semibold mr-1">Kode Member:</span>
+                  <span className="font-mono bg-slate-100 px-2 py-0.5 rounded">{data.memberCode}</span>
+                </div>
+              )}
+              {data.gender && (
+                <div>
+                  <span className="font-semibold mr-1">Jenis Kelamin:</span>
+                  {data.gender}
+                </div>
+              )}
+              {data.phone && (
+                <div>
+                  <span className="font-semibold mr-1">Telepon:</span>
+                  {data.phone}
+                </div>
+              )}
+              {data.email && (
+                <div>
+                  <span className="font-semibold mr-1">Email:</span>
+                  {data.email}
+                </div>
+              )}
+            </div>
+
+            {data.address && (
+              <div className="mb-3 text-sm text-gray-700">
+                <span className="font-semibold mr-1">Alamat:</span>
+                <span className="block mt-1 bg-slate-50 p-2 rounded-lg border border-slate-200">
+                  {data.address}
+                </span>
+              </div>
+            )}
+
             <div className="flex flex-wrap gap-2 mb-2">
               <span className={`inline-block px-2 py-0.5 text-xs rounded-full font-bold ${data.status === "aktif" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}>
                 {data.status === "aktif" ? "AKTIF" : "TIDAK AKTIF"}
@@ -354,7 +406,7 @@ export default function MemberProfilePage() {
                 className="inline-flex items-center justify-center gap-2 bg-[#1CB5E0] hover:bg-[#156477] text-white font-bold py-2 px-5 rounded-xl shadow-lg transition-all duration-200 active:scale-95 ring-2 ring-[#97CCDD]/30"
               >
                 <svg className="w-5 h-5" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
-                  <path d="M16 .01a15.92 15.92 0 0 0-13.47 24.93L0 32l7.23-2.35A15.91 15.91 0 1 0 16 .01zm7.36 23.39c-.31.88-1.6 1.62-2.2 1.72-.58.09-1.3.13-2.09-.13-.48-.15-1.09-.36-1.88-.7-3.31-1.43-5.47-4.75-5.63-4.97-.16-.22-1.34-1.78-1.34-3.38s.85-2.38 1.15-2.7c.28-.3.62-.38.82-.38.21 0 .41.01.59.01.18 0 .44-.07.69.52.25.59.85 2.05.93 2.2.08.15.13.32.03.52-.09.21-.13.33-.25.51-.13.18-.26.4-.37.54-.13.17-.26.35-.11.68.15.33.66 1.09 1.41 1.77 1.08.96 1.99 1.25 2.34 1.39.36.15.56.13.76-.08.21-.22.86-.96 1.09-1.29.23-.33.45-.27.77-.16.32.11 2.04.96 2.39 1.13.35.18.58.27.67.42.1.14.1.81-.21 1.7z" />
+                  <path d="M16 .01a15.92 15.92 0 0 0-13.47 24.93L0 32l7.23-2.35A15.91 15.91 0 1 0 16 .01zm7.36 23.39c-.31.88-1.6 1.62-2.2 1.72-.58.09-1.3.13-2.09-.13-.48-.15-1.09-.36-1.88-.70-3.31-1.43-5.47-4.75-5.63-4.97-.16-.22-1.34-1.78-1.34-3.38s.85-2.38 1.15-2.70c.28-.30.62-.38.82-.38.21 0 .41.01.59.01.18 0 .44-.07.69.52.25.59.85 2.05.93 2.20.08.15.13.32.03.52-.09.21-.13.33-.25.51-.13.18-.26.40-.37.54-.13.17-.26.35-.11.68.15.33.66 1.09 1.41 1.77 1.08.96 1.99 1.25 2.34 1.39.36.15.56.13.76-.08.21-.22.86-.96 1.09-1.29.23-.33.45-.27.77-.16.32.11 2.04.96 2.39 1.13.35.18.58.27.67.42.10.14.10.81-.21 1.70z" />
                 </svg>
                 Hubungi Admin WhatsApp
               </a>
