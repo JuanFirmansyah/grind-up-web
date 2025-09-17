@@ -1,5 +1,3 @@
-// src\app\admin\attendance\page.tsx
-
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -18,6 +16,7 @@ import {
   where,
   getDoc,
   getDocs,
+  setDoc,
   Timestamp,
   type FirestoreDataConverter,
   type DocumentData,
@@ -36,22 +35,18 @@ function dateIsoTZ(d: Date = new Date()): string {
     day: "2-digit",
   }).format(d);
 }
-
 function ymdTZ(d: Date = new Date()): string {
   return dateIsoTZ(d).replaceAll("-", "");
 }
-
 function hourTZ(d: Date = new Date()): number {
-  const fmt = new Intl.DateTimeFormat("en-GB", {
-    timeZone: TZ,
-    hour: "2-digit",
-    hour12: false,
-  });
-  const parts = fmt.formatToParts(d);
-  const hh = parts.find((p) => p.type === "hour")?.value;
-  return hh ? parseInt(hh, 10) : d.getHours();
+  return Number(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: TZ,
+      hour: "2-digit",
+      hour12: false,
+    }).format(d)
+  );
 }
-
 function timeHMtz(d?: Date): string {
   if (!d) return "-";
   return new Intl.DateTimeFormat("en-GB", {
@@ -63,77 +58,10 @@ function timeHMtz(d?: Date): string {
 }
 
 /* =====================
-   Types & interfaces
-   ===================== */
-// interface DailyDoc {
-//   dateKey?: string; // "YYYYMMDD"
-//   count?: number;
-//   byHour?: Record<string, number>;
-//   updatedAt?: Timestamp;
-// }
-
-interface GuestInfo {
-  name?: string;
-  email?: string;
-  phone?: string;
-  note?: string;
-}
-
-interface CheckinDoc {
-  gymId?: string;
-  userId?: string; // "GUEST" untuk tamu
-  dateKey?: string; // "YYYY-MM-DD"
-  byHour?: number; // 0..23
-  source?: string; // "kiosk" | "manual" | "manual_guest"
-  createdAt?: Timestamp;
-  guest?: GuestInfo; // data tamu bila ada
-}
-
-interface UserBrief {
-  name?: string;
-  email?: string;
-  phone?: string;
-  memberCode?: string;
-}
-
-interface CheckInResultOK {
-  ok: true;
-  duplicate: boolean;
-}
-
-interface CheckInResultError {
-  ok: false;
-  reason: "unknown" | "membership_inactive";
-}
-
-type CheckInResult = CheckInResultOK | CheckInResultError;
-
-interface CheckInParams {
-  userId: string;
-  gymId?: string;
-}
-
-interface MembershipStatus {
-  active: boolean;
-  expiryDate?: Date;
-}
-
-/* =====================
    Check-in member (transaction)
    ===================== */
-async function doCheckInClient(params: CheckInParams): Promise<CheckInResult> {
+async function doCheckInClient(params: { userId: string; gymId?: string }) {
   const { userId, gymId = "default" } = params;
-
-  // Periksa status keanggotaan sebelum check-in
-  try {
-    const membershipStatus = await checkMembershipStatus(userId);
-    if (!membershipStatus.active) {
-      return { ok: false, reason: "membership_inactive" };
-    }
-  } catch (error) {
-    console.error("Error checking membership status:", error);
-    return { ok: false, reason: "unknown" };
-  }
 
   const now = new Date();
   const ymd = ymdTZ(now);
@@ -173,88 +101,74 @@ async function doCheckInClient(params: CheckInParams): Promise<CheckInResult> {
       return { duplicate: false as const };
     });
 
-    return { ok: true, duplicate: result.duplicate };
+    return { ok: true as const, duplicate: result.duplicate };
   } catch (e) {
     console.error("Check-in error:", e);
-    return { ok: false, reason: "unknown" };
+    return { ok: false as const, reason: "unknown" as const };
   }
 }
 
 /* =====================
-   Check membership status
+   Types & converters
    ===================== */
-async function checkMembershipStatus(userId: string): Promise<MembershipStatus> {
-  try {
-    const userRef = doc(db, "users", userId);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      return { active: false };
+type DailyDoc = {
+  dateKey?: string; // "YYYYMMDD"
+  count?: number;
+  byHour?: Record<string, number>;
+  updatedAt?: Timestamp;
+};
+
+type GuestInfo = {
+  name?: string;
+  email?: string;
+  phone?: string;
+  note?: string;
+};
+
+type CheckinDoc = {
+  gymId?: string;
+  userId?: string; // "GUEST" untuk tamu
+  dateKey?: string; // "YYYY-MM-DD"
+  byHour?: number; // 0..23
+  source?: string; // "kiosk" | "manual" | "manual_guest"
+  createdAt?: Timestamp;
+  guest?: GuestInfo; // data tamu bila ada
+};
+
+const dailyConverter: FirestoreDataConverter<DailyDoc> = {
+  toFirestore: (d: DailyDoc): DocumentData => d,
+  fromFirestore: (snap, options) => {
+    const data = snap.data(options) as DocumentData;
+    const byHourObj =
+      typeof data.byHour === "object" && data.byHour !== null ? (data.byHour as Record<string, unknown>) : {};
+    const byHour: Record<string, number> = {};
+    for (const k of Object.keys(byHourObj)) {
+      const v = byHourObj[k];
+      if (typeof v === "number") byHour[k] = v;
     }
-    
-    const userData = userSnap.data() as { 
-      membershipActive?: boolean; 
-      membershipExpiry?: Timestamp;
-      status?: string;
+    return {
+      dateKey: typeof data.dateKey === "string" ? data.dateKey : undefined,
+      count: typeof data.count === "number" ? data.count : undefined,
+      byHour,
+      updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : undefined,
     };
-    
-    // Cek berdasarkan beberapa kemungkinan field
-    if (userData.membershipActive !== undefined) {
-      return { active: userData.membershipActive };
-    }
-    
-    if (userData.status === "active") {
-      return { active: true };
-    }
-    
-    if (userData.membershipExpiry) {
-      const expiryDate = userData.membershipExpiry.toDate();
-      return { active: expiryDate > new Date(), expiryDate };
-    }
-    
-    return { active: false };
-  } catch (error) {
-    console.error("Error checking membership:", error);
-    return { active: false };
-  }
-}
-
-/* =====================
-   Firestore converters
-   ===================== */
-// const dailyConverter: FirestoreDataConverter<DailyDoc> = {
-//   toFirestore: (d: DailyDoc): DocumentData => d,
-//   fromFirestore: (snap, options) => {
-//     const data = snap.data(options);
-//     const byHourObj = typeof data.byHour === "object" && data.byHour !== null ? data.byHour as Record<string, unknown> : {};
-//     const byHour: Record<string, number> = {};
-    
-//     for (const k of Object.keys(byHourObj)) {
-//       const v = byHourObj[k];
-//       if (typeof v === "number") byHour[k] = v;
-//     }
-    
-//     return {
-//       dateKey: typeof data.dateKey === "string" ? data.dateKey : undefined,
-//       count: typeof data.count === "number" ? data.count : undefined,
-//       byHour,
-//       updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt : undefined,
-//     };
-//   },
-// };
+  },
+};
 
 const checkinConverter: FirestoreDataConverter<CheckinDoc> = {
   toFirestore: (d: CheckinDoc): DocumentData => d,
   fromFirestore: (snap, options) => {
-    const data = snap.data(options);
-    const gRaw = data.guest && typeof data.guest === "object" ? data.guest as Record<string, unknown> : undefined;
-    
-    const guest: GuestInfo | undefined = gRaw ? {
-      name: typeof gRaw.name === "string" ? gRaw.name : undefined,
-      email: typeof gRaw.email === "string" ? gRaw.email : undefined,
-      phone: typeof gRaw.phone === "string" ? gRaw.phone : undefined,
-      note: typeof gRaw.note === "string" ? gRaw.note : undefined,
-    } : undefined;
+    const data = snap.data(options) as DocumentData;
+
+    const gRaw = data.guest && typeof data.guest === "object" ? (data.guest as Record<string, unknown>) : undefined;
+    const guest: GuestInfo | undefined = gRaw
+      ? {
+          name: typeof gRaw.name === "string" ? gRaw.name : undefined,
+          email: typeof gRaw.email === "string" ? gRaw.email : undefined,
+          phone: typeof gRaw.phone === "string" ? gRaw.phone : undefined,
+          note: typeof gRaw.note === "string" ? gRaw.note : undefined,
+        }
+      : undefined;
 
     return {
       gymId: typeof data.gymId === "string" ? data.gymId : undefined,
@@ -271,30 +185,25 @@ const checkinConverter: FirestoreDataConverter<CheckinDoc> = {
 /* =====================
    UI types
    ===================== */
-interface DailySummary {
+type DailySummary = {
   dateKey: string;
   count: number;
   byHour: Record<string, number>;
-}
-
-interface CheckinRow {
+};
+type CheckinRow = {
   id: string;
   userId: string;
   byHour?: number;
   createdAt?: Date;
   name?: string;
-  phone?: string;
-  memberCode?: string;
-}
-
-type TimePeriod = "daily" | "weekly" | "monthly";
+  email?: string;
+};
 
 /* =====================
-   Helper functions
+   helpers
    ===================== */
 function aggregateByHour(items: { byHour?: number; createdAt?: Date }[]): Record<string, number> {
   const agg: Record<string, number> = {};
-  
   for (const r of items) {
     const hh = typeof r.byHour === "number" ? r.byHour : r.createdAt ? hourTZ(r.createdAt) : undefined;
     if (typeof hh === "number") {
@@ -302,65 +211,31 @@ function aggregateByHour(items: { byHour?: number; createdAt?: Date }[]): Record
       agg[key] = (agg[key] ?? 0) + 1;
     }
   }
-  
   return agg;
 }
 
+type UserBrief = { name?: string; email?: string };
 async function fetchUsersBrief(ids: string[]): Promise<Record<string, UserBrief>> {
   const uids = Array.from(new Set(ids.filter(Boolean)));
   const map: Record<string, UserBrief> = {};
-  
   await Promise.all(
     uids.map(async (uid) => {
       const ref = doc(db, "users", uid);
       const snap = await getDoc(ref);
-      
       if (snap.exists()) {
-        const d = snap.data();
+        const d = snap.data() as { name?: unknown; email?: unknown };
         map[uid] = {
           name: typeof d.name === "string" ? d.name : undefined,
           email: typeof d.email === "string" ? d.email : undefined,
-          phone: typeof d.phone === "string" ? d.phone : undefined,
-          memberCode: typeof d.memberCode === "string" ? d.memberCode : undefined,
         };
       }
     })
   );
-  
   return map;
 }
 
-function getDateRange(timePeriod: TimePeriod, baseDate: Date = new Date()): { start: Date; end: Date } {
-  const start = new Date(baseDate);
-  const end = new Date(baseDate);
-  
-  switch (timePeriod) {
-    case "daily":
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
-      break;
-    case "weekly":
-      const day = start.getDay();
-      const diff = start.getDate() - day + (day === 0 ? -6 : 1);
-      start.setDate(diff);
-      start.setHours(0, 0, 0, 0);
-      end.setDate(start.getDate() + 6);
-      end.setHours(23, 59, 59, 999);
-      break;
-    case "monthly":
-      start.setDate(1);
-      start.setHours(0, 0, 0, 0);
-      end.setMonth(start.getMonth() + 1);
-      end.setDate(0);
-      end.setHours(23, 59, 59, 999);
-      break;
-  }
-  
-  return { start, end };
-}
-
 /* =====================
-   Main Page Component
+   Page
    ===================== */
 export default function AttendancePage() {
   const [tab, setTab] = useState<"scan" | "manual" | "daily">("scan");
@@ -369,10 +244,10 @@ export default function AttendancePage() {
   const tabs = useMemo(
     () =>
       [
-        { key: "scan" as const, label: "Scan", icon: <Camera className="w-4 h-4" /> },
-        { key: "manual" as const, label: "Manual", icon: <Keyboard className="w-4 h-4" /> },
-        { key: "daily" as const, label: "Harian", icon: <BarChart3 className="w-4 h-4" /> },
-      ],
+        { key: "scan", label: "Scan", icon: <Camera className="w-4 h-4" /> },
+        { key: "manual", label: "Manual", icon: <Keyboard className="w-4 h-4" /> },
+        { key: "daily", label: "Harian", icon: <BarChart3 className="w-4 h-4" /> },
+      ] as const,
     []
   );
 
@@ -396,8 +271,10 @@ export default function AttendancePage() {
       </div>
 
       <div className="rounded-2xl border bg-white p-3 md:p-4">
-        {tab === "scan" && <KioskScanPanel gymId={gymId} onCheckIn={doCheckInClient} />}
-        {tab === "manual" && <ManualCheckIn gymId={gymId} onCheckIn={doCheckInClient} />}
+        {tab === "scan" && <KioskScanPanel gymId={gymId} onCheckIn={({ userId }) => doCheckInClient({ userId, gymId })} />}
+
+        {tab === "manual" && <ManualCheckIn gymId={gymId} onCheckIn={({ userId }) => doCheckInClient({ userId, gymId })} />}
+
         {tab === "daily" && <DailyAttendancePanel gymId={gymId} />}
       </div>
     </div>
@@ -405,17 +282,16 @@ export default function AttendancePage() {
 }
 
 /* ==========================
-   DailyAttendancePanel Component
+   Komponen: DailyAttendancePanel
    ========================== */
 function DailyAttendancePanel({ gymId }: { gymId: string }) {
   const [dateIso, setDateIso] = useState<string>(dateIsoTZ(new Date()));
-  const [timePeriod, setTimePeriod] = useState<TimePeriod>("daily");
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [rows, setRows] = useState<CheckinRow[]>([]);
   const [rev, setRev] = useState(0);
 
-  // const ymd = dateIso.replaceAll("-", "");
+  const ymd = dateIso.replaceAll("-", "");
   const dateISO = dateIso;
 
   useEffect(() => {
@@ -424,72 +300,63 @@ function DailyAttendancePanel({ gymId }: { gymId: string }) {
     async function load() {
       setLoading(true);
       try {
-        // Untuk periode mingguan/bulanan, kita perlu mengambil data dari beberapa hari
-        const { start, end } = getDateRange(timePeriod, new Date(dateISO));
-        
-        // Buat array semua tanggal dalam rentang
-        const datesInRange: string[] = [];
-        const currentDate = new Date(start);
-        
-        while (currentDate <= end) {
-          datesInRange.push(dateIsoTZ(currentDate));
-          currentDate.setDate(currentDate.getDate() + 1);
-        }
+        // summary
+        const dailyRef = doc(db, "gyms", gymId, "daily_attendance", ymd).withConverter(dailyConverter);
+        const dailySnap = await getDoc(dailyRef);
+        const d = dailySnap.data() ?? undefined;
 
-        // Ambil data untuk semua tanggal dalam rentang
-        const allCheckins: CheckinRow[] = [];
+        // daftar checkins (baca guest & member)
+        const checkinsCol = collection(db, "gyms", gymId, "checkins").withConverter(checkinConverter);
+        const q1 = query(checkinsCol, where("dateKey", "==", dateISO));
+        const snap = await getDocs(q1);
+
+        const items: CheckinRow[] = [];
         const needUsers: string[] = [];
-        
-        for (const date of datesInRange) {
-          // const dateYmd = date.replaceAll("-", "");
-          
-          // Daftar checkins (baca guest & member)
-          const checkinsCol = collection(db, "gyms", gymId, "checkins").withConverter(checkinConverter);
-          const q1 = query(checkinsCol, where("dateKey", "==", date));
-          const snap = await getDocs(q1);
 
-          snap.forEach((docSnap) => {
-            const v = docSnap.data();
-            const row: CheckinRow = {
-              id: docSnap.id,
-              userId: String(v.userId ?? ""),
-              byHour: v.byHour,
-              createdAt: v.createdAt ? v.createdAt.toDate() : undefined,
-              name: v.guest?.name,
-              phone: v.guest?.phone,
-            };
-            allCheckins.push(row);
-            if (row.userId && row.userId !== "GUEST" && (!row.name || !row.phone)) {
-              needUsers.push(row.userId);
-            }
-          });
-        }
+        snap.forEach((docSnap) => {
+          const v = docSnap.data();
+          const row: CheckinRow = {
+            id: docSnap.id,
+            userId: String(v.userId ?? ""),
+            byHour: v.byHour,
+            createdAt: v.createdAt ? v.createdAt.toDate() : undefined,
+            name: v.guest?.name,
+            email: v.guest?.email,
+          };
+          items.push(row);
+          if (row.userId && row.userId !== "GUEST" && (!row.name || !row.email)) needUsers.push(row.userId);
+        });
 
         // join info users utk member
         if (needUsers.length) {
           const map = await fetchUsersBrief(needUsers);
-          for (const it of allCheckins) {
+          for (const it of items) {
             if (it.userId !== "GUEST") {
               const info = map[it.userId];
               if (info) {
                 if (!it.name && info.name) it.name = info.name;
-                if (!it.phone && info.phone) it.phone = info.phone;
-                if (info.memberCode) it.memberCode = info.memberCode;
+                if (!it.email && info.email) it.email = info.email;
               }
             }
           }
         }
 
         // byHour final
-        const finalByHour = aggregateByHour(allCheckins);
-        const finalCount = allCheckins.length;
+        const hasByHour = d?.byHour && Object.keys(d.byHour).length > 0;
+        const finalByHour = hasByHour ? (d!.byHour as Record<string, number>) : aggregateByHour(items);
+        const finalCount = typeof d?.count === "number" ? d!.count : items.length;
+
+        // backfill sekali jika kosong
+        if (!hasByHour && Object.keys(finalByHour).length > 0) {
+          await setDoc(dailyRef, { dateKey: ymd, byHour: finalByHour, updatedAt: serverTimestamp() }, { merge: true });
+        }
 
         // urut terbaru
-        allCheckins.sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
+        items.sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
 
         if (!cancelled) {
-          setSummary({ dateKey: dateISO, count: finalCount, byHour: finalByHour });
-          setRows(allCheckins);
+          setSummary({ dateKey: d?.dateKey ?? ymd, count: finalCount, byHour: finalByHour });
+          setRows(items);
         }
       } catch (e) {
         console.error("Load daily error:", e);
@@ -506,14 +373,13 @@ function DailyAttendancePanel({ gymId }: { gymId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [gymId, dateISO, timePeriod, rev]);
+  }, [gymId, ymd, dateISO, rev]);
 
   const total = summary?.count ?? 0;
   const byHour = summary?.byHour ?? {};
 
   const handleExportPDF = () => {
-    const periodLabel = timePeriod === "daily" ? "Harian" : timePeriod === "weekly" ? "Mingguan" : "Bulanan";
-    const title = `Absensi ${periodLabel} - ${dateISO} - Gym ${gymId}`;
+    const title = `Absensi Harian - ${dateISO} - Gym ${gymId}`;
     const win = window.open("", "printWin");
     if (!win) return;
 
@@ -546,14 +412,14 @@ function DailyAttendancePanel({ gymId }: { gymId: string }) {
       .map((r, i) => {
         const t = timeHMtz(r.createdAt);
         const nm = r.name ? r.name : "";
-        const phone = r.phone ? r.phone : "";
-        const memberCode = r.memberCode ? r.memberCode : r.userId;
+        const em = r.email ? r.email : "";
         return `<tr>
           <td>${i + 1}</td>
           <td>${t}</td>
-          <td>${memberCode}</td>
+          <td>${r.userId}</td>
           <td>${nm}</td>
-          <td>${phone}</td>
+          <td>${em}</td>
+          <td>${r.id}</td>
         </tr>`;
       })
       .join("");
@@ -564,7 +430,6 @@ function DailyAttendancePanel({ gymId }: { gymId: string }) {
       <body>
         <h1>${title}</h1>
         <div class="meta">Total hadir: <b>${total}</b></div>
-        <div class="meta">Periode: <b>${periodLabel}</b></div>
 
         <h2>Distribusi per Jam</h2>
         <table>
@@ -574,7 +439,7 @@ function DailyAttendancePanel({ gymId }: { gymId: string }) {
 
         <h2 style="margin-top:16px;">Daftar Hadir (${rows.length})</h2>
         <table>
-          <thead><tr><th>#</th><th>Waktu (WITA)</th><th>Kode Member</th><th>Nama</th><th>Telepon</th></tr></thead>
+          <thead><tr><th>#</th><th>Waktu (WITA)</th><th>User ID</th><th>Nama</th><th>Email</th><th>Doc ID</th></tr></thead>
           <tbody>${checkinRows}</tbody>
         </table>
 
@@ -605,17 +470,6 @@ function DailyAttendancePanel({ gymId }: { gymId: string }) {
             value={dateISO}
             onChange={(e) => e.target.value && setDateIso(e.target.value)}
           />
-          
-          <select
-            value={timePeriod}
-            onChange={(e) => setTimePeriod(e.target.value as TimePeriod)}
-            className="border rounded-lg px-3 py-2 text-sm"
-          >
-            <option value="daily">Harian</option>
-            <option value="weekly">Mingguan</option>
-            <option value="monthly">Bulanan</option>
-          </select>
-          
           <button onClick={reload} className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border hover:bg-neutral-50" title="Muat ulang">
             <RefreshCcw className="w-4 h-4" /> Refresh
           </button>
@@ -677,16 +531,17 @@ function DailyAttendancePanel({ gymId }: { gymId: string }) {
               <tr className="bg-neutral-50">
                 <th className="text-left p-2 border">#</th>
                 <th className="text-left p-2 border">Waktu (WITA)</th>
-                <th className="text-left p-2 border">Kode Member</th>
+                <th className="text-left p-2 border">User ID</th>
                 <th className="text-left p-2 border">Nama</th>
-                <th className="text-left p-2 border">Telepon</th>
+                <th className="text-left p-2 border">Email</th>
+                <th className="text-left p-2 border">Doc ID</th>
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-4 text-center text-neutral-500">
-                    Tidak ada data untuk periode ini.
+                  <td colSpan={6} className="p-4 text-center text-neutral-500">
+                    Tidak ada data untuk tanggal ini.
                   </td>
                 </tr>
               ) : (
@@ -694,9 +549,10 @@ function DailyAttendancePanel({ gymId }: { gymId: string }) {
                   <tr key={r.id}>
                     <td className="p-2 border">{i + 1}</td>
                     <td className="p-2 border">{timeHMtz(r.createdAt)}</td>
-                    <td className="p-2 border font-mono">{r.memberCode || r.userId}</td>
+                    <td className="p-2 border font-mono">{r.userId}</td>
                     <td className="p-2 border">{r.name ?? "-"}</td>
-                    <td className="p-2 border">{r.phone ?? "-"}</td>
+                    <td className="p-2 border">{r.email ?? "-"}</td>
+                    <td className="p-2 border font-mono">{r.id}</td>
                   </tr>
                 ))
               )}

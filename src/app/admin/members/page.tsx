@@ -12,6 +12,8 @@ import {
   doc,
   addDoc,
   Timestamp,
+  query,
+  orderBy,
   type DocumentData,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -26,7 +28,7 @@ import {
   X,
   QrCode,
   DollarSign,
-  Eye,
+  // Eye,
   UploadCloud,
   SortAsc,
   TimerReset,
@@ -46,6 +48,7 @@ import { format } from "date-fns";
 import dynamic from "next/dynamic";
 import { toPng } from "html-to-image";
 import jsPDF from "jspdf";
+
 
 const QRCode = dynamic(() => import("react-qr-code"), { ssr: false });
 
@@ -181,7 +184,7 @@ interface Member {
   activityScore?: number;
   createdAt?: DateLike;
   lastLogin?: DateLike;
-  isVerified: boolean;
+  lastCheckin?: DateLike;
   deleted?: boolean;
   photoURL?: string | null;
   qrData?: string | null;
@@ -200,7 +203,6 @@ interface UserRaw {
   activityScore?: number;
   createdAt?: DateLike;
   lastLogin?: DateLike;
-  isVerified: boolean;
   deleted?: boolean;
   photoURL?: string | null;
   qrData?: string | null;
@@ -322,7 +324,7 @@ function MemberCard({
             background: dark ? "rgada(255,255,255,0.06)" : "rgba(255,255,255,0.7)",
           }}
         >
-          MEMER CARD
+          MEMBER CARD
         </div>
       </div>
 
@@ -521,6 +523,7 @@ export default function AdminMembersPage() {
   const [showDeleted, setShowDeleted] = useState(false);
   const [isDrawerOpen, setDrawerOpen] = useState(false);
   const [modalImage, setModalImage] = useState<string | null>(null);
+  const [lastCheckinFilter, setLastCheckinFilter] = useState("");
 
   // QR simple
   const [qrValue, setQrValue] = useState<string | null>(null);
@@ -598,6 +601,10 @@ export default function AdminMembersPage() {
     const fetchMembers = async () => {
       setLoading(true);
       const querySnapshot = await getDocs(collection(db, "users"));
+      
+      // Dapatkan semua last checkins sekaligus untuk optimasi
+      const lastCheckins = await getAllLastCheckins();
+      
       const data: Member[] = [];
       querySnapshot.forEach((docSnap) => {
         const d = docSnap.data() as UserRaw;
@@ -610,7 +617,7 @@ export default function AdminMembersPage() {
           activityScore: d.activityScore,
           createdAt: d.createdAt ?? null,
           lastLogin: d.lastLogin ?? null,
-          isVerified: d.isVerified,
+          lastCheckin: lastCheckins[docSnap.id] ?? null, // TAMBAHKAN LAST CHECKIN
           deleted: d.deleted || false,
           photoURL: d.photoURL ?? null,
           qrData: d.qrData ?? null,
@@ -618,7 +625,7 @@ export default function AdminMembersPage() {
           memberType: d.memberType ?? "",
           gender: d.gender,
           address: d.address,
-          memberCode: d.memberCode ?? null, // <-- NEW
+          memberCode: d.memberCode ?? null,
         });
       });
       setMembers(data);
@@ -626,6 +633,35 @@ export default function AdminMembersPage() {
     };
     fetchMembers().catch(() => setLoading(false));
   }, []);
+
+  // TAMBAHKAN FUNGSI UNTUK MENDAPATKAN SEMUA LAST CHECKIN
+  async function getAllLastCheckins(): Promise<Record<string, DateLike>> {
+    try {
+      const checkinsRef = collection(db, "gyms", "mainGym", "checkins");
+      const q = query(
+        checkinsRef,
+        orderBy("createdAt", "desc")
+      );
+      
+      const querySnapshot = await getDocs(q);
+      const lastCheckins: Record<string, DateLike> = {};
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        const userId = data.userId;
+        
+        // Hanya simpan checkin terakhir untuk setiap user
+        if (userId && !lastCheckins[userId]) {
+          lastCheckins[userId] = data.createdAt || null;
+        }
+      });
+      
+      return lastCheckins;
+    } catch (error) {
+      console.error("Error fetching all last checkins:", error);
+      return {};
+    }
+  }
 
   /* ========== Helpers & derived ========== */
   const selectedPkg = useMemo(() => (payPackageId ? packageMap[payPackageId] ?? null : null), [payPackageId, packageMap]);
@@ -660,7 +696,7 @@ export default function AdminMembersPage() {
         (m.name || "").toLowerCase().includes(term) ||
         (m.email || "").toLowerCase().includes(term) ||
         (m.phone || "").toLowerCase().includes(term) ||
-        (m.memberCode || "").toLowerCase().includes(term); // cari juga by memberCode
+        (m.memberCode || "").toLowerCase().includes(term);
       const matchesStatus = statusFilter ? m.status === statusFilter : true;
       const matchesDeleted = showDeleted ? m.deleted : !m.deleted;
 
@@ -668,7 +704,28 @@ export default function AdminMembersPage() {
       const expiringSoon = exp ? Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) <= 7 : false;
       const matchesSoon = onlyExpiringSoon ? expiringSoon : true;
 
-      return matchesSearch && matchesStatus && matchesDeleted && matchesSoon;
+      // TAMBAHKAN FILTER UNTUK LAST CHECKIN
+      const matchesLastCheckin = () => {
+        if (!lastCheckinFilter) return true;
+        
+        const checkinDate = toJSDate(m.lastCheckin);
+        if (!checkinDate) return lastCheckinFilter === "never";
+        
+        const diffDays = Math.floor((now.getTime() - checkinDate.getTime()) / (1000 * 60 * 60 * 24));
+        
+        switch (lastCheckinFilter) {
+          case "today": return diffDays === 0;
+          case "week": return diffDays <= 7;
+          case "month": return diffDays <= 30;
+          case "3months": return diffDays <= 90;
+          case "6months": return diffDays <= 180;
+          case "year": return diffDays <= 365;
+          case "never": return false;
+          default: return true;
+        }
+      };
+
+      return matchesSearch && matchesStatus && matchesDeleted && matchesSoon && matchesLastCheckin();
     });
 
     const sorted = [...base].sort((a, b) => {
@@ -681,7 +738,7 @@ export default function AdminMembersPage() {
     });
 
     return sorted;
-  }, [members, searchTerm, statusFilter, showDeleted, sortMode, onlyExpiringSoon]);
+  }, [members, searchTerm, statusFilter, showDeleted, sortMode, onlyExpiringSoon, lastCheckinFilter]);
 
   const totalPages = Math.ceil(filteredSortedMembers.length / pageSize);
   const paginatedMembers = filteredSortedMembers.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -1090,6 +1147,25 @@ export default function AdminMembersPage() {
               <option value="non-aktif">Tidak Aktif</option>
             </select>
 
+                      {/* TAMBAHKAN FILTER UNTUK LAST CHECKIN */}
+            <select
+              className="w-full sm:w-56 border rounded-xl px-4 py-2"
+              value={lastCheckinFilter}
+              onChange={(e) => {
+                setLastCheckinFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+            >
+              <option value="">Semua Absen</option>
+              <option value="today">Absen Hari Ini</option>
+              <option value="week">Absen Minggu Ini</option>
+              <option value="month">Absen Bulan Ini</option>
+              <option value="3months">Absen 3 Bulan Terakhir</option>
+              <option value="6months">Absen 6 Bulan Terakhir</option>
+              <option value="year">Absen Tahun Ini</option>
+              <option value="never">Belum Pernah Absen</option>
+            </select>
+
             <select
               className="w-full sm:w-56 border rounded-xl px-4 py-2"
               value={sortMode}
@@ -1168,10 +1244,10 @@ export default function AdminMembersPage() {
                 <th className="p-4 text-left">Member Code</th>{/* NEW */}
                 <th className="p-4 text-left">Nomor HP</th>
                 <th className="p-4 text-left">Email</th>
-                <th className="p-4 text-left">Tipe Member</th>
+                {/* <th className="p-4 text-left">Tipe Member</th> */}
                 <th className="p-4 text-left">Status</th>
-                <th className="p-4 text-left">Terakhir Login</th>
-                <th className="p-4 text-left">Verifikasi</th>
+                {/* <th className="p-4 text-left">Terakhir Login</th> */}
+                <th className="p-4 text-left">Terakhir Absen</th>
                 <th className="p-4 text-left">Foto</th>
                 <th className="p-4 text-left">Expired</th>
                 <th className="p-4 text-left">Aksi</th>
@@ -1225,18 +1301,20 @@ export default function AdminMembersPage() {
                         )}
                       </td>
                       <td className="p-4 text-gray-700">{member.email}</td>
-                      <td className="p-4 font-semibold" style={{ color: colors.darker }}>
+                      {/* <td className="p-4 font-semibold" style={{ color: colors.darker }}>
                         {member.memberType
                           ? packageMap[member.memberType]
                             ? packageMap[member.memberType].name
                             : <span className="text-amber-600">Paket tidak ditemukan</span>
                           : <span className="text-gray-400 italic">Belum dipilih</span>}
-                      </td>
+                      </td> */}
                       <td className={`p-4 font-medium capitalize ${member.status === "aktif" ? "text-green-600" : "text-red-500"}`}>
                         {member.status}{soon && <span className="ml-2 text-xs px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">≤ 7 hari</span>}
                       </td>
-                      <td className="p-4 text-sm">{formatDate(member.lastLogin)}</td>
-                      <td className="p-4">{member.isVerified ? "✅" : "❌"}</td>
+                      {/* <td className="p-4 text-sm">{formatDate(member.lastLogin)}</td> */}
+                      <td className="p-4 text-sm">
+                        {formatDate(member.lastCheckin) || "Belum pernah"}
+                      </td> {/* DATA TERAKHIR ABSEN */}
                       <td className="p-4">
                         {member.photoURL ? (
                           <Image
@@ -1253,14 +1331,14 @@ export default function AdminMembersPage() {
                       </td>
                       <td className="p-4 text-sm">{formatDate(member.expiresAt)}</td>
                       <td className="p-4 flex flex-wrap gap-2">
-                        <button
+                        {/* <button
                           onClick={() => router.push(`/member/${member.id}`)}
                           className="p-2 rounded-full text-white hover:scale-110 transition"
                           style={{ background: colors.darker }}
                           aria-label="Detail"
                         >
                           <Eye className="w-4 h-4" />
-                        </button>
+                        </button> */}
                         <button
                           onClick={() => router.push(`/admin/members/form?id=${member.id}`)}
                           className="p-2 rounded-full text-white hover:scale-110 transition"
@@ -1434,12 +1512,12 @@ export default function AdminMembersPage() {
                 onChange={(e) => setPayMethod(e.target.value as PayMethod)}
                 className="border px-3 py-2 rounded w-full"
               >
-                <option value="cash">Cash / Tunai</option>
+                <option value="cash">Tunai</option>
+                <option value="debit">Debit</option>
                 <option value="qris">QRIS</option>
-                <option value="transfer">Transfer</option>
-                <option value="other">Lainnya (ketik sendiri)</option>
+                {/* <option value="other">Lainnya (ketik sendiri)</option> */}
               </select>
-              {payMethod === "other" && (
+              {/* {payMethod === "other" && (
                 <input
                   type="text"
                   className="mt-2 border px-3 py-2 rounded w-full"
@@ -1447,7 +1525,7 @@ export default function AdminMembersPage() {
                   value={payMethodCustom}
                   onChange={(e) => setPayMethodCustom(e.target.value)}
                 />
-              )}
+              )} */}
             </div>
 
             {/* Nominal */}

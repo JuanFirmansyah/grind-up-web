@@ -30,6 +30,7 @@ interface UserDoc {
   photoURL?: string;
   role?: string;
   status?: string;
+  isVerified?: boolean;
   createdAt?: MaybeTimestamp;
   qrData?: string;      // sesuai DB terbaru
   profileURL?: string;  // fallback lama (opsional)
@@ -51,6 +52,7 @@ interface MemberData {
   photoURL?: string;
   role: string;
   status: string;
+  isVerified: boolean;
   createdAt: MaybeTimestamp;
   qrData?: string;
   profileURL?: string;
@@ -114,6 +116,7 @@ export default function MemberProfilePage() {
           photoURL: d.photoURL ?? "",
           role: d.role ?? "",
           status: d.status ?? "",
+          isVerified: d.isVerified ?? false,
           createdAt: d.createdAt ?? null,
           qrData: d.qrData ?? "",
           profileURL: d.profileURL ?? "",
@@ -376,6 +379,9 @@ export default function MemberProfilePage() {
             <div className="flex flex-wrap gap-2 mb-2">
               <span className={`inline-block px-2 py-0.5 text-xs rounded-full font-bold ${data.status === "aktif" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}>
                 {data.status === "aktif" ? "AKTIF" : "TIDAK AKTIF"}
+              </span>
+              <span className={`inline-block px-2 py-0.5 text-xs rounded-full font-semibold ${data.isVerified ? "bg-blue-100 text-blue-600" : "bg-gray-100 text-gray-400"}`}>
+                {data.isVerified ? "Terverifikasi" : "Belum Verifikasi"}
               </span>
             </div>
 

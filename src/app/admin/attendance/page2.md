@@ -42,14 +42,10 @@ function ymdTZ(d: Date = new Date()): string {
 }
 
 function hourTZ(d: Date = new Date()): number {
-  const fmt = new Intl.DateTimeFormat("en-GB", {
-    timeZone: TZ,
-    hour: "2-digit",
-    hour12: false,
-  });
-  const parts = fmt.formatToParts(d);
-  const hh = parts.find((p) => p.type === "hour")?.value;
-  return hh ? parseInt(hh, 10) : d.getHours();
+  // UTC +8 untuk Asia/Makassar
+  const utcHour = d.getUTCHours();
+  const localHour = (utcHour + 8) % 24;
+  return localHour;
 }
 
 function timeHMtz(d?: Date): string {
