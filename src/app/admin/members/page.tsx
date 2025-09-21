@@ -1123,11 +1123,11 @@ export default function AdminMembersPage() {
 
         {/* Filters */}
         <div className="flex flex-col lg:flex-row lg:items-end gap-3 mb-6">
-          <div className="flex-1 flex flex-col sm:flex-row gap-3">
+          <div className="flex-1 flex flex-col sm:flex-row gap-3 w-full">
             <input
               type="text"
               placeholder="Cari nama, email, nomor telepon, atau member code"
-              className="w-full sm:flex-1 border rounded-xl px-4 py-2"
+              className="w-full sm:w-72 border rounded-xl px-4 py-2"
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
