@@ -1,21 +1,9 @@
-// src\components\attendance\KioskScanPanel.tsx
-
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Scanner } from "@yudiel/react-qr-scanner";
 import { motion, AnimatePresence } from "framer-motion";
 import { Camera, RefreshCcw } from "lucide-react";
-import { db } from "@/lib/firebase";
-import {
-  doc,
-  getDoc,
-  collection,
-  query,
-  where,
-  limit,
-  getDocs,
-} from "firebase/firestore";
 
 type ScanStatus = "idle" | "success" | "duplicate" | "inactive" | "error";
 type CheckInResult =
@@ -32,27 +20,14 @@ function extractCode(value: unknown): string {
   if (Array.isArray(value)) {
     const first = value[0];
     if (typeof first === "string") return first;
-    if (isWithRawValue(first) && typeof first.rawValue === "string")
-      return String(first.rawValue);
+    if (isWithRawValue(first) && typeof first.rawValue === "string") return String(first.rawValue);
     return "";
   }
-  if (isWithRawValue(value) && typeof value.rawValue === "string")
-    return String(value.rawValue);
+  if (isWithRawValue(value) && typeof value.rawValue === "string") return String(value.rawValue);
   return "";
 }
 
-const CANDIDATE_KEYS = [
-  "uid",
-  "userId",
-  "memberId",
-  "id",
-  "u",
-  "code",
-  "member",
-  "member_id",
-  "qr",
-  "qrid",
-] as const;
+const CANDIDATE_KEYS = ["uid", "userId", "memberId", "id", "u", "code", "member", "member_id", "qr", "qrid"] as const;
 const UIDISH = /^[A-Za-z0-9_-]{20,40}$/;
 
 /** dukung url / json / string polos */
@@ -73,9 +48,7 @@ function parseUserToken(raw: string): string | null {
       }
       const segs = u.pathname.split("/").filter(Boolean);
       if (segs.length) return segs[segs.length - 1].trim();
-    } catch {
-      // ignore invalid URL
-    }
+    } catch {}
   }
 
   if (s.startsWith("{")) {
@@ -85,15 +58,16 @@ function parseUserToken(raw: string): string | null {
         const v = obj[k as string];
         if (typeof v === "string" && v.trim()) return v.trim();
       }
-    } catch {
-      // ignore invalid JSON
-    }
+    } catch {}
   }
 
   return s;
 }
 
 /** Resolve token (docId/authUID/memberCode) → docId di koleksi users */
+import { db } from "@/lib/firebase";
+import { doc, getDoc, collection, query, where, limit, getDocs } from "firebase/firestore";
+
 async function resolveToUserDocId(token: string): Promise<string | null> {
   const t = token.trim();
   if (!t) return null;
@@ -176,13 +150,13 @@ export default function KioskScanPanel({
         const res = await onCheckIn({ userId: userDocId, gymId });
         if (res.ok && res.duplicate) {
           setStatus("duplicate");
-          setMessage("⚠️ Sudah check-in hari ini");
+          setMessage("Sudah check-in hari ini");
         } else if (res.ok) {
           setStatus("success");
-          setMessage("✅ Check-in berhasil");
+          setMessage("Check-in berhasil");
         } else if (res.reason === "membership_inactive") {
           setStatus("inactive");
-          setMessage("❌ Membership tidak aktif");
+          setMessage("Membership tidak aktif");
         } else {
           setStatus("error");
           setMessage("Gagal check-in");
@@ -191,7 +165,7 @@ export default function KioskScanPanel({
         setStatus("error");
         setMessage("Kesalahan sistem");
       } finally {
-        setTimeout(resetUI, 1800);
+        setTimeout(resetUI, 1500);
       }
     },
     [gymId, onCheckIn]
@@ -221,15 +195,17 @@ export default function KioskScanPanel({
       <div className="relative aspect-video rounded-2xl overflow-hidden shadow-sm border bg-black">
         {enabled ? (
           <>
-            <Scanner
-              onScan={handleDetected}
-              onError={() => {}}
-              constraints={videoConstraints}
-            />
+            <Scanner onScan={handleDetected} onError={() => {}} constraints={videoConstraints} />
             {/* overlay viewfinder */}
             <div className="pointer-events-none absolute inset-0">
               <div className="absolute inset-0 bg-black/30" />
               <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[60%] max-w-[480px] aspect-square rounded-3xl border-2 border-white/90 shadow-[0_0_0_20000px_rgba(0,0,0,0.6)]" />
+              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[60%] max-w-[480px] aspect-square">
+                <div className="absolute -top-2 -left-2 w-10 h-10 border-t-4 border-l-4 border-[#97CCDD] rounded-tl-2xl" />
+                <div className="absolute -top-2 -right-2 w-10 h-10 border-t-4 border-r-4 border-[#97CCDD] rounded-tr-2xl" />
+                <div className="absolute -bottom-2 -left-2 w-10 h-10 border-b-4 border-l-4 border-[#97CCDD] rounded-bl-2xl" />
+                <div className="absolute -bottom-2 -right-2 w-10 h-10 border-b-4 border-r-4 border-[#97CCDD] rounded-br-2xl" />
+              </div>
               <motion.div
                 className="absolute left-1/2 top-1/2 -translate-x-1/2 w-[55%] max-w-[440px] h-0.5 bg-white/90"
                 initial={{ y: "-40%" }}
