@@ -5,10 +5,25 @@ import { Scanner } from "@yudiel/react-qr-scanner";
 import { motion, AnimatePresence } from "framer-motion";
 import { Camera, RefreshCcw } from "lucide-react";
 
-type ScanStatus = "idle" | "success" | "duplicate" | "inactive" | "error";
-type CheckInResult =
-  | { ok: true; duplicate?: boolean }
-  | { ok: false; reason: "membership_inactive" | "unknown" };
+// Sesuaikan dengan types dari attendance page
+type ScanStatus = "idle" | "success";
+
+interface CheckInResultOK {
+  ok: true;
+  duplicate: boolean;
+}
+
+interface CheckInResultError {
+  ok: false;
+  reason: "unknown" | "membership_inactive";
+}
+
+type CheckInResult = CheckInResultOK | CheckInResultError;
+
+// interface CheckInParams {
+//   userId: string;
+//   gymId?: string;
+// }
 
 /* ============ helpers ============ */
 type WithRawValue = { rawValue?: unknown };
@@ -72,19 +87,23 @@ async function resolveToUserDocId(token: string): Promise<string | null> {
   const t = token.trim();
   if (!t) return null;
 
+  // Coba langsung sebagai document ID di users collection
   const tryDoc = await getDoc(doc(db, "users", t));
   if (tryDoc.exists()) return tryDoc.id;
 
+  // Coba cari berdasarkan uid (Firebase Auth UID)
   if (UIDISH.test(t)) {
     const q1 = query(collection(db, "users"), where("uid", "==", t), limit(1));
     const s1 = await getDocs(q1);
     if (!s1.empty) return s1.docs[0].id;
   }
 
+  // Coba cari berdasarkan memberCode (sesuai attendance page)
   const q2 = query(collection(db, "users"), where("memberCode", "==", t), limit(1));
   const s2 = await getDocs(q2);
   if (!s2.empty) return s2.docs[0].id;
 
+  // Coba cari di member_codes mapping table
   const mapSnap = await getDoc(doc(db, "member_codes", t));
   if (mapSnap.exists()) {
     const d = mapSnap.data() as { userId?: unknown };
@@ -130,42 +149,38 @@ export default function KioskScanPanel({
       cooldownRef.current = now;
       lastCodeRef.current = raw;
 
+      console.log("QR Raw Data:", raw); // Debug
+
       const token = parseUserToken(raw);
       if (!token) {
-        setStatus("error");
-        setMessage("QR kosong/tidak terbaca");
-        setTimeout(resetUI, 1200);
+        console.log("Token parsing failed"); // Debug
         return;
       }
+
+      console.log("Parsed Token:", token); // Debug
 
       const userDocId = await resolveToUserDocId(token);
       if (!userDocId) {
-        setStatus("error");
-        setMessage("QR tidak valid / user tidak ditemukan");
-        setTimeout(resetUI, 1300);
+        console.log("User not found for token:", token); // Debug
         return;
       }
 
+      console.log("Resolved User ID:", userDocId); // Debug
+
       try {
         const res = await onCheckIn({ userId: userDocId, gymId });
-        if (res.ok && res.duplicate) {
-          setStatus("duplicate");
-          setMessage("Sudah check-in hari ini");
-        } else if (res.ok) {
+        console.log("Check-in Result:", res); // Debug
+        
+        // HANYA tampilkan alert jika check-in berhasil (bukan duplicate)
+        if (res.ok && !res.duplicate) {
           setStatus("success");
           setMessage("Check-in berhasil");
-        } else if (res.reason === "membership_inactive") {
-          setStatus("inactive");
-          setMessage("Membership tidak aktif");
-        } else {
-          setStatus("error");
-          setMessage("Gagal check-in");
+          setTimeout(resetUI, 1500);
         }
-      } catch {
-        setStatus("error");
-        setMessage("Kesalahan sistem");
-      } finally {
-        setTimeout(resetUI, 1500);
+        // Untuk kasus lainnya (duplicate, inactive, error) tidak tampilkan alert sama sekali
+      } catch (error) {
+        console.error("Check-in error:", error); // Debug
+        // Tidak tampilkan alert untuk error sistem
       }
     },
     [gymId, onCheckIn]
@@ -195,7 +210,11 @@ export default function KioskScanPanel({
       <div className="relative aspect-video rounded-2xl overflow-hidden shadow-sm border bg-black">
         {enabled ? (
           <>
-            <Scanner onScan={handleDetected} onError={() => {}} constraints={videoConstraints} />
+            <Scanner 
+              onScan={handleDetected} 
+              onError={(error) => console.error("Scanner error:", error)} 
+              constraints={videoConstraints} 
+            />
             {/* overlay viewfinder */}
             <div className="pointer-events-none absolute inset-0">
               <div className="absolute inset-0 bg-black/30" />
@@ -223,22 +242,14 @@ export default function KioskScanPanel({
           </div>
         )}
 
+        {/* HANYA tampilkan alert untuk status success */}
         <AnimatePresence>
-          {status !== "idle" && (
+          {status === "success" && (
             <motion.div
               initial={{ y: 16, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 16, opacity: 0 }}
-              className={`absolute bottom-3 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl text-sm font-medium
-                ${
-                  status === "success"
-                    ? "bg-green-600 text-white"
-                    : status === "duplicate"
-                    ? "bg-amber-500 text-black"
-                    : status === "inactive"
-                    ? "bg-red-600 text-white"
-                    : "bg-neutral-700 text-white"
-                }`}
+              className="absolute bottom-3 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl text-sm font-medium bg-green-600 text-white"
             >
               {message}
             </motion.div>

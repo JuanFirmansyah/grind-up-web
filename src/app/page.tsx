@@ -9,7 +9,7 @@ import { motion } from "framer-motion";
 const ANDROID_APK_URL = "https://firebasestorage.googleapis.com/v0/b/grind-up.firebasestorage.app/o/apk%2Fgrindup-v1.apk?alt=media&token=1c0a4459-85ec-41dc-b315-859c727c365f";
 
 // Banner baru, ganti sesuai branding kamu
-const HERO_IMAGE_URL = "/hero-app.png"; // Upload file ini ke /public
+const HERO_IMAGE_URL = "/hero-banner.png"; // Upload file ini ke /public
 const LOGO_URL = "/grindup-logo.png";
 
 // ========== NAVBAR ==========
@@ -173,7 +173,7 @@ export default function Home() {
             className="rounded-xl shadow-lg border"
           />
           <Image
-            src="/demo-2.png"
+            src="/hero-banner.png"
             alt="Demo Mobile App"
             width={220}
             height={400}

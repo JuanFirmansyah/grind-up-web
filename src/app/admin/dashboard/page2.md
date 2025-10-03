@@ -26,7 +26,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import dayjs from "dayjs";
 import "dayjs/locale/id";
 import Image from "next/image";
-import { CreditCard, Users, Calendar, Clock, Filter } from "lucide-react";
+import { CreditCard } from "lucide-react";
 
 /* ============ Palet warna konsisten ============ */
 const colors = {
@@ -35,7 +35,6 @@ const colors = {
   dark: "#6FB5CC",
   darker: "#4A9EBB",
   complementary: "#DDC497",
-  accent: "#DD97CC",
   text: "#2D3748",
   textLight: "#F8FAFC",
 };
@@ -52,9 +51,9 @@ const navItems = [
 ];
 
 // === Firestore paths untuk modul absensi ===
-const GYM_ID = "default";
-const dateKeyYYYYMMDD = (d: Date) => dayjs(d).format("YYYYMMDD");
-const dateKeyDashed = (d: Date) => dayjs(d).format("YYYY-MM-DD");
+const GYM_ID = "default"; // ganti kalau kamu pakai gym id lain
+const dateKeyYYYYMMDD = (d: Date) => dayjs(d).format("YYYYMMDD");   // contoh: 20250831
+const dateKeyDashed    = (d: Date) => dayjs(d).format("YYYY-MM-DD"); // contoh: 2025-08-31
 
 type CoachType = {
   name: string;
@@ -74,25 +73,23 @@ type CoachType = {
 
 type ClassType = {
   id: string;
-  date: string;
+  date: string; // "YYYY-MM-DD"
   name: string;
   time: string;
   coach: string;
   coachPhoto?: string;
   desc?: string;
-  memberCount?: number;
+  memberCount?: number; // tidak dipakai untuk slot
   room?: string;
   calories?: number;
   level?: string;
-  slots?: number;
-  bookedCount?: number;
+  slots?: number; // total slot
+  bookedCount?: number; // jumlah hadir/tercatat
   allowDropIn?: boolean;
   dropInPrice?: number | null;
-  tags?: string[];
 };
 
 type MaybeTs = Date | string | number | Timestamp | null | undefined;
-
 function toDateValue(v: MaybeTs): Date | null {
   if (!v) return null;
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
@@ -129,7 +126,6 @@ export default function AdminDashboard() {
 
   // Calendar states
   const [selectedDate, setSelectedDate] = useState(fmtDateId(today));
-  const [classFilter, setClassFilter] = useState<'all' | 'regular' | 'special'>('all');
 
   // Popups
   const [selectedClassDetail, setSelectedClassDetail] = useState<ClassType | null>(null);
@@ -145,19 +141,6 @@ export default function AdminDashboard() {
       }),
     []
   );
-
-  // Filter classes based on selected date and filter
-  const filteredClasses = useMemo(() => {
-    return classes.filter(cls => {
-      const matchesDate = cls.date === selectedDate;
-      const matchesFilter = 
-        classFilter === 'all' ? true :
-        classFilter === 'regular' ? !cls.tags?.includes('special') :
-        classFilter === 'special' ? cls.tags?.includes('special') : true;
-      
-      return matchesDate && matchesFilter;
-    });
-  }, [classes, selectedDate, classFilter]);
 
   useEffect(() => {
     async function fetchData() {
@@ -206,7 +189,6 @@ export default function AdminDashboard() {
             bookedCount: (d.bookedCount ?? 0) as number,
             allowDropIn: Boolean(d.allowDropIn),
             dropInPrice: typeof d.dropInPrice === "number" ? d.dropInPrice : null,
-            tags: d.tags || [],
           });
         });
 
@@ -245,7 +227,8 @@ export default function AdminDashboard() {
         // ========= Attendance Today (harian) =========
         let attendanceToday = 0;
         try {
-          const todayKeyCompact = dateKeyYYYYMMDD(today);
+          // 3a. Coba baca ringkasan harian di gyms/default/daily_attendance/{YYYYMMDD}
+          const todayKeyCompact = dateKeyYYYYMMDD(today);      // "20250831"
           const dailyDocRef = doc(db, "gyms", GYM_ID, "daily_attendance", todayKeyCompact);
           const dailySnap = await getDoc(dailyDocRef);
 
@@ -254,8 +237,9 @@ export default function AdminDashboard() {
             if (typeof dd.count === "number") attendanceToday = dd.count;
           }
 
+          // 3b. Fallback: kalau doc ringkasan belum ada, hitung dari koleksi checkins (filter dateKey)
           if (!attendanceToday) {
-            const todayKeyDashed = dateKeyDashed(today);
+            const todayKeyDashed = dateKeyDashed(today);       // "2025-08-31"
             const qCheckins = query(
               collection(db, "gyms", GYM_ID, "checkins"),
               where("dateKey", "==", todayKeyDashed)
@@ -291,6 +275,7 @@ export default function AdminDashboard() {
     router.push("/login");
   };
 
+  // helper untuk sync bookedCount lokal saat absensi berubah
   const adjustBookedCount = (classId: string, delta: number) => {
     setClasses((prev) =>
       prev.map((c) => (c.id === classId ? { ...c, bookedCount: Math.max(0, (c.bookedCount ?? 0) + delta) } : c))
@@ -363,7 +348,7 @@ export default function AdminDashboard() {
             />
           </div>
 
-          {/* Monitoring Member - DIPERTAHANKAN */}
+          {/* Monitoring Member */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <ClickableStatCard
               label="Akan Expired (≤7 hari)"
@@ -383,14 +368,12 @@ export default function AdminDashboard() {
             />
           </div>
 
-          {/* Kalender Kelas - DIUPDATE dengan filter */}
-          <WeeklyClassCalendar
+          {/* Kalender Kelas */}
+          <ClassCalendar
             dates={calendarDates}
             selectedDate={selectedDate}
             onSelectDate={setSelectedDate}
-            classFilter={classFilter}
-            onClassFilterChange={setClassFilter}
-            classes={filteredClasses}
+            classes={classes}
             coaches={coaches}
             onShowDetail={setSelectedClassDetail}
             onShowAttendance={setAttendanceTarget}
@@ -407,7 +390,7 @@ export default function AdminDashboard() {
             )}
           </AnimatePresence>
 
-          {/* Modal Absensi - DIPERBAIKI useEffectnya */}
+          {/* Modal Absensi */}
           <AnimatePresence>
             {attendanceTarget && (
               <AttendanceModal
@@ -504,13 +487,11 @@ function ClickableStatCard({
   );
 }
 
-/* ============ Komponen Kalender Kelas - DIUPDATE ============ */
-function WeeklyClassCalendar({
+/* ============ Komponen Kalender Kelas ============ */
+function ClassCalendar({
   dates,
   selectedDate,
   onSelectDate,
-  classFilter,
-  onClassFilterChange,
   classes,
   coaches,
   onShowDetail,
@@ -519,52 +500,16 @@ function WeeklyClassCalendar({
   dates: string[];
   selectedDate: string;
   onSelectDate: (date: string) => void;
-  classFilter: 'all' | 'regular' | 'special';
-  onClassFilterChange: (filter: 'all' | 'regular' | 'special') => void;
   classes: ClassType[];
   coaches: Record<string, CoachType>;
   onShowDetail: (cls: ClassType) => void;
   onShowAttendance: (cls: ClassType) => void;
 }) {
-  const classCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    dates.forEach(date => {
-      counts[date] = classes.filter(cls => cls.date === date).length;
-    });
-    return counts;
-  }, [dates, classes]);
-
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="bg-white rounded-2xl shadow-lg border p-6"
-      style={{ borderColor: colors.light }}
-    >
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6 gap-4">
-        <div>
-          <h2 className="text-xl font-bold" style={{ color: colors.text }}>
-            Kalender Kelas Mingguan
-          </h2>
-          <p className="text-gray-600 text-sm">Kelola jadwal dan absensi kelas 7 hari ke depan</p>
-        </div>
-        
-        <div className="flex gap-2">
-          <Filter className="h-5 w-5 text-gray-400 mt-1" />
-          <select
-            value={classFilter}
-            onChange={(e) => onClassFilterChange(e.target.value as 'all' | 'regular' | 'special')}
-            className="border rounded-lg px-3 py-2 text-sm"
-            style={{ borderColor: colors.light }}
-          >
-            <option value="all">Semua Kelas</option>
-            <option value="regular">Regular Class</option>
-            <option value="special">Special Class</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Date Selector dengan Class Count */}
+    <div>
+      <h2 className="text-xl font-bold mb-2" style={{ color: colors.text }}>
+        Kalender Kelas Mingguan
+      </h2>
       <div className="flex gap-2 mb-6 overflow-x-auto py-2">
         {dates.map((date) => {
           const d = dayjs(date).locale("id");
@@ -572,145 +517,117 @@ function WeeklyClassCalendar({
           const num = d.format("DD");
           const mon = d.format("MMM");
           const active = selectedDate === date;
-          const classCount = classCounts[date] || 0;
-
           return (
             <motion.button
               key={date}
               whileTap={{ scale: 0.97 }}
               whileHover={{ scale: 1.03, boxShadow: "0 2px 24px 0 #97CCDD44" }}
-              className="flex flex-col items-center justify-center px-4 py-3 min-w-[100px] rounded-xl border-2 transition font-bold relative"
+              className="flex flex-col items-center justify-center px-4 py-3 min-w-[95px] rounded-xl border-2 transition font-bold"
               style={{
                 borderColor: active ? colors.darker : "#e5e7eb",
                 background: active ? colors.base : "#ffffff",
-                color: active ? colors.textLight : colors.text,
+                color: active ? "#0f172a" : "#374151",
               }}
               onClick={() => onSelectDate(date)}
             >
               <span className="text-sm">{dayLabel}</span>
               <span className="text-2xl">{num}</span>
               <span className="text-xs">{mon}</span>
-              
-              {/* Class Count Badge */}
-              {classCount > 0 && (
-                <div className={`absolute -top-1 -right-1 w-5 h-5 rounded-full text-xs flex items-center justify-center ${
-                  active ? 'bg-white text-blue-600' : 'bg-blue-500 text-white'
-                }`}>
-                  {classCount}
-                </div>
-              )}
             </motion.button>
           );
         })}
       </div>
 
-      {/* Classes Grid */}
-      {classes.length === 0 ? (
-        <div className="text-center py-12 text-gray-500">
-          <Calendar className="h-16 w-16 mx-auto mb-4 opacity-50" />
-          <p className="text-lg font-semibold">Tidak ada kelas pada tanggal ini</p>
-          <p className="text-sm">Pilih tanggal lain atau buat kelas baru</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {classes.map((cls, index) => {
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+        {classes.filter((c) => c.date === selectedDate).length === 0 && (
+          <div className="col-span-full text-center py-16 text-gray-400 font-semibold">Tidak ada kelas di tanggal ini.</div>
+        )}
+        {classes
+          .filter((c) => c.date === selectedDate)
+          .map((cls) => {
             const coach = coaches[cls.coach] || ({} as CoachType);
             const total = cls.slots ?? 0;
             const booked = cls.bookedCount ?? 0;
             const available = Math.max(0, total - booked);
-            const isSpecial = cls.tags?.includes('special');
 
             return (
               <motion.div
                 key={cls.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
+                layout
                 whileHover={{ y: -4, boxShadow: "0 8px 32px 0 #97CCDD55" }}
-                className="bg-white rounded-xl border-2 p-4 transition-all"
-                style={{ 
-                  borderColor: isSpecial ? colors.accent : colors.base,
-                  background: isSpecial ? `${colors.accent}08` : 'white'
-                }}
+                transition={{ type: "spring", stiffness: 350, damping: 22 }}
+                className="bg-white rounded-2xl shadow-md p-6 flex flex-col gap-3 border"
+                style={{ borderColor: colors.base }}
               >
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-3 flex-1">
-                    <Image
-                      src={coach.photoUrl || "/default-coach.png"}
-                      alt={cls.coach ? `Foto Coach ${cls.coach}` : "Foto Coach"}
-                      width={40}
-                      height={40}
-                      className="h-10 w-10 rounded-full border-2 object-cover"
-                      style={{ borderColor: colors.base }}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-bold text-gray-900 truncate">{cls.name}</div>
-                      <div className="text-sm text-gray-500">Coach: {cls.coach}</div>
+                <div className="flex items-center gap-3">
+                  <Image
+                    src={coach.photoUrl || "/default-coach.png"}
+                    alt={cls.coach ? `Foto Coach ${cls.coach}` : "Foto Coach"}
+                    width={40}
+                    height={40}
+                    className="h-10 w-10 rounded-full border-2 object-cover"
+                    style={{ borderColor: colors.base }}
+                  />
+                  <div className="flex-1">
+                    <div className="font-bold text-lg" style={{ color: colors.text }}>
+                      {cls.name}
+                    </div>
+                    <div className="text-sm text-gray-500">Coach: {cls.coach}</div>
+                  </div>
+                  <div className="text-right text-xs">
+                    <div className="font-semibold">Slot Tersisa</div>
+                    <div
+                      className="px-2 py-0.5 rounded-md inline-block mt-1"
+                      style={{ background: available > 0 ? "#dcfce7" : "#fee2e2", color: available > 0 ? "#166534" : "#991b1b" }}
+                    >
+                      {available}/{total}
                     </div>
                   </div>
-                  {isSpecial && (
-                    <span className="px-2 py-1 text-xs font-bold rounded-full bg-pink-100 text-pink-800">
-                      SPECIAL
-                    </span>
-                  )}
                 </div>
 
-                <div className="space-y-2 text-sm text-gray-600 mb-3">
-                  <div className="flex items-center gap-4">
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-4 w-4" />
-                      {cls.time}
-                    </span>
-                    <span>Ruangan: {cls.room}</span>
-                  </div>
-                  <div className="flex gap-2 flex-wrap">
-                    <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">{cls.level}</span>
-                    <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">{cls.calories ?? 0} kcal</span>
-                    <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">{cls.memberCount || 0} Peserta</span>
-                  </div>
+                <div className="flex gap-4 text-sm text-gray-600">
+                  <span>{cls.time}</span>
+                  <span>Ruangan: {cls.room}</span>
                 </div>
-
-                <div className="text-gray-500 text-xs mb-3 line-clamp-2">{cls.desc}</div>
+                <div className="flex gap-3 flex-wrap text-xs mt-1">
+                  <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded">{cls.level}</span>
+                  <span className="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded">{cls.calories ?? 0} kcal</span>
+                  <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded">{cls.memberCount || 0} Peserta</span>
+                </div>
+                <div className="text-gray-500 text-xs mt-1 line-clamp-2">{cls.desc}</div>
 
                 {cls.allowDropIn && (
-                  <div className="text-xs mb-3">
-                    <span className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded">
+                  <div className="text-xs">
+                    <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">
                       Drop‑In {typeof cls.dropInPrice === "number" ? `• Rp ${cls.dropInPrice.toLocaleString("id-ID")}` : ""}
                     </span>
                   </div>
                 )}
 
-                <div className="flex items-center justify-between pt-3 border-t border-gray-100">
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4 text-gray-400" />
-                    <span className="text-sm font-medium">
-                      {available}/{total} tersedia
-                    </span>
-                  </div>
-                  
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      className="px-3 py-1 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 transition"
-                      onClick={() => onShowDetail(cls)}
-                    >
-                      Detail
-                    </button>
-                    <button
-                      type="button"
-                      className="px-3 py-1 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-                      onClick={() => onShowAttendance(cls)}
-                    >
-                      Absensi
-                    </button>
-                  </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    className="px-3 py-2 rounded-lg border text-sm"
+                    style={{ borderColor: colors.light }}
+                    onClick={() => onShowDetail(cls)}
+                  >
+                    Detail
+                  </button>
+                  <button
+                    type="button"
+                    className="px-3 py-2 rounded-lg text-white text-sm"
+                    style={{ background: colors.darker }}
+                    onClick={() => onShowAttendance(cls)}
+                    title="Absensi"
+                  >
+                    Absensi
+                  </button>
                 </div>
               </motion.div>
             );
           })}
-        </div>
-      )}
-    </motion.div>
+      </div>
+    </div>
   );
 }
 
@@ -813,7 +730,7 @@ function ClassDetailModal({
   );
 }
 
-/* ============ Modal Absensi - DIPERBAIKI useEffect ============ */
+/* ============ Modal Absensi ============ */
 type UserLite = { id: string; name?: string; email?: string; phone?: string };
 
 function AttendanceModal({
@@ -833,51 +750,45 @@ function AttendanceModal({
 
   // --- form tamu/drop-in ---
   const [guestName, setGuestName] = useState("");
-  const [guestContact, setGuestContact] = useState("");
+  const [guestContact, setGuestContact] = useState(""); // email atau HP
   const [payMethod, setPayMethod] = useState<"cash" | "qris" | "transfer" | "other">("cash");
   const [paidNow, setPaidNow] = useState(true);
   const [guestSaving, setGuestSaving] = useState(false);
 
   const classRef = doc(db, "classes", cls.id);
 
-  // PERBAIKAN: Pindahkan logic ke dalam useEffect
   useEffect(() => {
-    async function loadData() {
+    (async () => {
       setLoading(true);
-      try {
-        const [usersSnap, attendanceSnap] = await Promise.all([
-          getDocs(collection(db, "users")),
-          getDocs(collection(db, "classes", cls.id, "attendance")),
-        ]);
+      const [usersSnap, attendanceSnap] = await Promise.all([
+        getDocs(collection(db, "users")),
+        getDocs(collection(db, "classes", cls.id, "attendance")),
+      ]);
 
-        const users: UserLite[] = [];
-        usersSnap.forEach((d) => {
-          const u = d.data() as DocumentData;
-          if ((u.role || "member").toLowerCase() === "member" && !u.deleted) {
-            users.push({
-              id: d.id,
-              name: typeof u.name === "string" ? u.name : undefined,
-              email: typeof u.email === "string" ? u.email : undefined,
-              phone: typeof u.phone === "string" ? u.phone : undefined,
-            });
-          }
-        });
+      const users: UserLite[] = [];
+      usersSnap.forEach((d) => {
+        const u = d.data() as DocumentData;
+        if ((u.role || "member").toLowerCase() === "member" && !u.deleted) {
+          users.push({
+            id: d.id,
+            name: typeof u.name === "string" ? u.name : undefined,
+            email: typeof u.email === "string" ? u.email : undefined,
+            phone: typeof u.phone === "string" ? u.phone : undefined,
+          });
+        }
+      });
 
-        const att: Record<string, boolean> = {};
-        attendanceSnap.forEach((d) => {
-          const a = d.data() as { present?: boolean };
-          if (typeof a.present === "boolean" && a.present) att[d.id] = true;
-        });
+      const att: Record<string, boolean> = {};
+      attendanceSnap.forEach((d) => {
+        const a = d.data() as { present?: boolean };
+        if (typeof a.present === "boolean" && a.present) att[d.id] = true;
+      });
 
-        setMembers(users);
-        setPresent(att);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadData();
-  }, [cls.id]); // Hanya cls.id sebagai dependency
+      setMembers(users);
+      setPresent(att);
+      setLoading(false);
+    })().catch(() => setLoading(false));
+  }, [cls.id]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -893,6 +804,7 @@ function AttendanceModal({
   const availableFromDoc = Math.max(0, (cls.slots ?? 0) - (cls.bookedCount ?? 0));
 
   const markPresent = async (user: UserLite, newVal: boolean) => {
+    // cegah melebihi slot saat menambah
     if (newVal && availableFromDoc <= 0) {
       alert("Slot sudah penuh.");
       return;
@@ -954,6 +866,7 @@ function AttendanceModal({
 
     setGuestSaving(true);
     try {
+      // simpan attendance tamu (ID auto)
       const attRef = doc(collection(db, "classes", cls.id, "attendance"));
       await setDoc(attRef, {
         present: true,
@@ -1165,31 +1078,23 @@ function PresentList({
   const [loading, setLoading] = useState(true);
   const classRef = doc(db, "classes", classId);
 
-  // PERBAIKAN: Pindahkan logic ke dalam useEffect
   useEffect(() => {
-    async function loadData() {
+    (async () => {
       setLoading(true);
-      try {
-        const snap = await getDocs(collection(db, "classes", classId, "attendance"));
-        const r: { id: string; name?: string; email?: string; phone?: string }[] = [];
-        const flags: Record<string, boolean> = {};
-        
-        snap.forEach((d) => {
-          const a = d.data() as { present?: boolean; name?: string; email?: string; phone?: string };
-          if (a.present) {
-            r.push({ id: d.id, name: a.name, email: a.email, phone: a.phone });
-            flags[d.id] = true;
-          }
-        });
-        
-        setRows(r);
-        setPresent((p) => ({ ...p, ...flags }));
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadData();
+      const snap = await getDocs(collection(db, "classes", classId, "attendance"));
+      const r: { id: string; name?: string; email?: string; phone?: string }[] = [];
+      const flags: Record<string, boolean> = {};
+      snap.forEach((d) => {
+        const a = d.data() as { present?: boolean; name?: string; email?: string; phone?: string };
+        if (a.present) {
+          r.push({ id: d.id, name: a.name, email: a.email, phone: a.phone });
+          flags[d.id] = true;
+        }
+      });
+      setRows(r);
+      setPresent((p) => ({ ...p, ...flags }));
+      setLoading(false);
+    })().catch(() => setLoading(false));
   }, [classId, setPresent]);
 
   const cancelPresent = async (uid: string) => {

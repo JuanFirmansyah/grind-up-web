@@ -1,15 +1,14 @@
-// src\app\admin\classes\page.tsx
-
+// src/app/admin/classes/page.tsx
 "use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, Calendar, Users } from "lucide-react";
 import { AdminTopbar } from "@/components/AdminTopbar";
 import { AdminMobileDrawer } from "@/components/AdminMobileDrawer";
 import { AdminSidebar } from "@/components/AdminSidebar";
-import RegulerTab from "./tabs/RegulerTab";
-import SpecialTab from "./tabs/SpecialTab";
+import ClassTable from "./components/ClassTable";
+import ClassFilters from "./components/ClassFilters";
 
 /* ================== Color Palette (konsisten) ================== */
 const colors = {
@@ -34,21 +33,29 @@ const navItems = [
   { label: "Galeri", href: "/admin/gallery" },
 ];
 
-type TabKey = "class" | "special";
+type TabKey = "regular" | "special";
+type ViewMode = "table" | "grid";
 
 export default function AdminClassesPage() {
-  const [activeTab, setActiveTab] = useState<TabKey>("class");
+  const [activeTab, setActiveTab] = useState<TabKey>("regular");
+  const [viewMode, setViewMode] = useState<ViewMode>("table");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
   const [isDrawerOpen, setDrawerOpen] = useState(false);
   const router = useRouter();
 
   const handleAdd = () => {
-    if (activeTab === "class") router.push("/admin/classes/form");
-    else if (activeTab === "special") router.push("/admin/classes/form?type=special");
+    router.push(`/admin/classes/form?type=${activeTab}`);
   };
 
   const AddButtonLabel: Record<TabKey, string> = {
-    class: "Tambah Kelas",
-    special: "Tambah Special",
+    regular: "Tambah Kelas Regular",
+    special: "Tambah Special Class",
+  };
+
+  const TabDescription: Record<TabKey, string> = {
+    regular: "Kelas studio reguler dengan jadwal tetap. Member dapat booking berdasarkan paket membership mereka.",
+    special: "Kelas khusus dengan tema spesial, workshop, atau event tertentu. Memiliki aturan akses khusus.",
   };
 
   return (
@@ -73,51 +80,110 @@ export default function AdminClassesPage() {
           }}
         >
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <h1 className="text-2xl md:text-3xl font-extrabold">Manajemen Kelas</h1>
+            <div>
+              <h1 className="text-2xl md:text-3xl font-extrabold">Manajemen Kelas</h1>
+              <p className="opacity-90 mt-1 text-sm md:text-base">
+                Kelola Studio Class & Special Class. Akses member diatur dari menu <b>Paket Membership</b> (berdasarkan TAG).
+              </p>
+            </div>
             <button
               type="button"
               onClick={handleAdd}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl shadow-md transition text-white hover:opacity-95"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl shadow-md transition text-white hover:opacity-95 whitespace-nowrap"
               style={{ background: colors.complementary }}
               aria-label={AddButtonLabel[activeTab]}
               title={AddButtonLabel[activeTab]}
             >
               <Plus className="w-5 h-5" />
-              <span className="hidden sm:inline">{AddButtonLabel[activeTab]}</span>
+              <span>{AddButtonLabel[activeTab]}</span>
             </button>
           </div>
-          <p className="opacity-90 mt-1 text-sm md:text-base">
-            Kelola Studio Class & Special Class. Akses member diatur dari menu <b>Paket Membership</b> (berdasarkan TAG).
-          </p>
         </div>
 
-        {/* Tabs */}
-        <div
-          className="sticky top-0 z-10 -mt-2 mb-6 pb-2 backdrop-blur supports-[backdrop-filter]:bg-white/70"
-          style={{ borderBottom: `1px solid ${colors.light}` }}
-        >
-          <div className="flex flex-wrap gap-2">
-            <TabButton
-              active={activeTab === "class"}
-              onClick={() => setActiveTab("class")}
-              label="Studio Class"
-              activeColor={colors.base}
-              textColor={colors.text}
-            />
-            <TabButton
-              active={activeTab === "special"}
-              onClick={() => setActiveTab("special")}
-              label="Special Class"
-              activeColor={colors.accent}
-              textColor={colors.text}
-            />
+        {/* Tabs & Controls */}
+        <div className="space-y-4 mb-6">
+          {/* Tabs */}
+          <div
+            className="sticky top-0 z-10 -mt-2 pb-2 backdrop-blur supports-[backdrop-filter]:bg-white/70"
+            style={{ borderBottom: `1px solid ${colors.light}` }}
+          >
+            <div className="flex flex-wrap gap-2 mb-4">
+              <TabButton
+                active={activeTab === "regular"}
+                onClick={() => setActiveTab("regular")}
+                label={
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4" />
+                    <span>Studio Class</span>
+                  </div>
+                }
+                activeColor={colors.base}
+                textColor={colors.text}
+              />
+              <TabButton
+                active={activeTab === "special"}
+                onClick={() => setActiveTab("special")}
+                label={
+                  <div className="flex items-center gap-2">
+                    <Users className="w-4 h-4" />
+                    <span>Special Class</span>
+                  </div>
+                }
+                activeColor={colors.accent}
+                textColor={colors.text}
+              />
+            </div>
+
+            {/* Tab Description */}
+            <p className="text-sm text-gray-600 mb-4">
+              {TabDescription[activeTab]}
+            </p>
+
+            {/* View Controls & Filters */}
+            <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+              {/* View Mode Toggle */}
+              <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
+                <button
+                  onClick={() => setViewMode("table")}
+                  className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                    viewMode === "table" 
+                      ? "bg-white text-gray-900 shadow-sm" 
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  Tabel
+                </button>
+                <button
+                  onClick={() => setViewMode("grid")}
+                  className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                    viewMode === "grid" 
+                      ? "bg-white text-gray-900 shadow-sm" 
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  Grid
+                </button>
+              </div>
+
+              {/* Filters */}
+              <ClassFilters
+                searchTerm={searchTerm}
+                onSearchChange={setSearchTerm}
+                dateFilter={dateFilter}
+                onDateFilterChange={setDateFilter}
+              />
+            </div>
           </div>
         </div>
 
         {/* Content */}
         <section aria-live="polite">
-          {activeTab === "class" && <RegulerTab />}
-          {activeTab === "special" && <SpecialTab />}
+          <ClassTable
+            type={activeTab}
+            viewMode={viewMode}
+            searchTerm={searchTerm}
+            dateFilter={dateFilter}
+          />
         </section>
       </div>
     </main>
@@ -132,14 +198,12 @@ function TabButton({
   label,
   activeColor,
   textColor,
-  darkText = false,
 }: {
   active: boolean;
   onClick: () => void;
-  label: string;
+  label: React.ReactNode;
   activeColor: string;
   textColor: string;
-  darkText?: boolean;
 }) {
   return (
     <button
@@ -147,14 +211,14 @@ function TabButton({
       onClick={onClick}
       aria-pressed={active}
       className={[
-        "px-4 py-2 rounded-full font-semibold shadow transition-all duration-150 outline-none",
-        "focus-visible:ring-2",
-        active ? "scale-[1.02]" : "hover:scale-[1.01]",
+        "px-4 py-3 rounded-xl font-semibold shadow transition-all duration-150 outline-none min-w-[140px]",
+        "focus-visible:ring-2 focus-visible:ring-offset-2",
+        active ? "scale-[1.02] shadow-md" : "hover:scale-[1.01] hover:shadow-sm",
       ].join(" ")}
       style={{
         background: active ? activeColor : "#ffffff",
-        color: active ? (darkText ? colors.textLight : "#ffffff") : textColor,
-        border: `1px solid ${active ? activeColor : colors.light}`,
+        color: active ? "#ffffff" : textColor,
+        border: `2px solid ${active ? activeColor : colors.light}`,
       }}
     >
       {label}
